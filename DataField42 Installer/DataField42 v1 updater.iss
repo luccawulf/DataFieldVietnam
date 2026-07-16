@@ -1,12 +1,16 @@
-﻿#define AppId "DataField42"
-#define AppExePath "..\DataField42\bin\Publish\" + AppId + ".exe"
+﻿; AppExeName is the exe filename (DataFieldVietnam.exe), launched by the in-game hook by that literal.
+; AppId stays "DataField42" as the uninstall registry identity. AppDisplayName is the human-facing name.
+#define AppId "DataField42"
+#define AppExeName "DataFieldVietnam"
+#define AppDisplayName "DataField Vietnam"
+#define AppExePath "..\DataField42\bin\Publish\" + AppExeName + ".exe"
 #define AppVersion GetFileVersion(AppExePath)
 #define DotNetRuntimeIntallerName "DotNetRuntimeInstaller.exe"
 
 [Setup]
 AppId={#AppId}
-AppName={#AppId}
-UninstallDisplayName={#AppId}
+AppName={#AppDisplayName}
+UninstallDisplayName={#AppDisplayName}
 AppVersion={#AppVersion}
 WizardStyle=modern
 ShowLanguageDialog=auto
@@ -20,10 +24,10 @@ DisableReadyPage=yes
 SolidCompression=yes
 Compression=lzma2/ultra
 SetupIconFile=../DataField42/logo.ico
-UninstallDisplayIcon={app}\{#AppId}.exe
+UninstallDisplayIcon={app}\{#AppExeName}.exe
 UninstallFilesDir={app}\{#AppId}
 OutputDir=bin
-OutputBaseFilename={#AppId} v1 to v2.0.0.0 Updater
+OutputBaseFilename={#AppDisplayName} v1 to v2.0.0.0 Updater
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -47,12 +51,12 @@ ja.Run=%1を実行
 Source: {#AppExePath}; DestDir: {app}
 
 [Icons]
-Name: {commondesktop}\{#AppId}; Filename: {app}\{#AppId}.exe; WorkingDir: {app}
-Name: {group}\{#AppId}; Filename: {app}\{#AppId}.exe; WorkingDir: {app}
+Name: {commondesktop}\{#AppDisplayName}; Filename: {app}\{#AppExeName}.exe; WorkingDir: {app}
+Name: {group}\{#AppDisplayName}; Filename: {app}\{#AppExeName}.exe; WorkingDir: {app}
 
 [Run]
-Filename: "{app}\{#AppId}.exe"; Parameters: "install"; 
-Filename: "{app}\{#AppId}.exe"; Description: {cm:Run,{#AppId}}; Flags: nowait postinstall 
+Filename: "{app}\{#AppExeName}.exe"; Parameters: "install";
+Filename: "{app}\{#AppExeName}.exe"; Description: {cm:Run,{#AppDisplayName}}; Flags: nowait postinstall
 
 [Code]
 var
@@ -201,7 +205,7 @@ begin
   begin
     strContent := ':try_delete' + #13 + #10 +
           'del "' + ExpandConstant('{srcexe}') + '"' + #13 + #10 +
-          'del "' + ExpandConstant('{src}') + '\\DataField42_updater.exe' + '"' + #13 + #10 +
+          'del "' + ExpandConstant('{src}') + '\\DataFieldVietnam_updater.exe' + '"' + #13 + #10 +
           'del "' + ExpandConstant('{src}') + '\\DataField42 installer.exe' + '"' + #13 + #10 +
           'if exist "' + ExpandConstant('{srcexe}') + '" goto try_delete' + #13 + #10 +
           'del %0';

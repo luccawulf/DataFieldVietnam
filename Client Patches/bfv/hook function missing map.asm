@@ -19,7 +19,7 @@ org 0xE23050
 ;     defaults ("Map: , Mod: BF1942", null host).
 ; So: capture while the strings are live, run the disconnect ourselves, then spawn.
 ;
-; Emits:  DataField42.exe bfvmap <ipHex>:<portHex> <map> <mod>
+; Emits:  DataFieldVietnam.exe bfvmap <ipHex>:<portHex> <map> <mod>
 ;
 ; Hex rather than dotted-decimal because the address only exists as 4 raw bytes and formatting
 ; decimal in asm costs ~50 instructions; the client parses the hex form (see CommandLineArguments).
@@ -71,10 +71,27 @@ hook_map:
     mov     al, ' '
     stosb
 
-    mov     esi, [GAME_OBJ]             ; active mod = first addModPath entry
+    ; The mod the SERVER asked for, taken from our own command line.
+    ;
+    ; Not the addModPath vector: that says what the client actually loaded, and when the requested mod
+    ; is not installed the game quietly falls back to base BFVietnam. The hook then reports
+    ; "Mod: BFVietnam" for a DiceCity_V server and the sync asks for a map that mod does not have.
+    ; The command line still carries what was asked for -- BFV relaunches itself with
+    ; "+game <mod> +joinServer ..." to join, so by the time we are here it is there either way.
+    call    [GETCOMMANDLINEA]
+    mov     esi, s_game
+    call    find_substr
+    test    esi, esi
+    jnz     .have_mod
+
+    mov     esi, [GAME_OBJ]             ; nothing on the command line: fall back to what we loaded
     mov     esi, [esi+MODVEC_OFF]
     cstr_esi
     call    copy_cstr
+    jmp     .mod_done
+.have_mod:
+    call    copy_token
+.mod_done:
 
     xor     al, al
     stosb                               ; terminate
@@ -95,7 +112,7 @@ hook_map:
     call    dword [edx+0x28]
     mov     ebx, esp                    ; re-derive the buffer, in case the call was careless with ebx
 
-    ; ShellExecuteA(NULL, NULL, "DataField42.exe", buffer, NULL, SW_SHOWNORMAL)
+    ; ShellExecuteA(NULL, NULL, "DataFieldVietnam.exe", buffer, NULL, SW_SHOWNORMAL)
     push    1
     push    0
     push    ebx
@@ -119,6 +136,53 @@ hook_map:
     add     esp, 4                      ; drop our return address
     jmp     0x527CF6                    ; past the game's own disconnect
 
+
+; eax = haystack, esi = needle -> esi = just past the first match, or 0 if absent.
+find_substr:
+    push    ebx
+    push    edi
+    push    edx
+    mov     ebx, eax
+.outer:
+    cmp     byte [ebx], 0
+    je      .fail
+    mov     edx, ebx                    ; candidate start
+    mov     edi, esi                    ; needle cursor
+.inner:
+    mov     cl, [edi]
+    test    cl, cl
+    jz      .hit                        ; needle exhausted -> matched
+    mov     ch, [edx]
+    cmp     cl, ch
+    jne     .next
+    inc     edx
+    inc     edi
+    jmp     .inner
+.next:
+    inc     ebx
+    jmp     .outer
+.hit:
+    mov     esi, edx                    ; first byte after the needle
+    jmp     .done
+.fail:
+    xor     esi, esi
+.done:
+    pop     edx
+    pop     edi
+    pop     ebx
+    ret
+
+; esi = source, edi = cursor. Copies one command-line token: stops at a space or the terminator.
+copy_token:
+    lodsb
+    test    al, al
+    jz      .done
+    cmp     al, ' '
+    je      .done
+    stosb
+    jmp     copy_token
+.done:
+    ret
 
 ; esi = source C string, edi = cursor. Copies without the terminator.
 copy_cstr:
@@ -156,4 +220,6 @@ emit_nib:
 s_bfvmap:
     db "bfvmap ", 0
 s_exe:
-    db "DataField42.exe", 0
+    db "DataFieldVietnam.exe", 0
+s_game:
+    db "+game ", 0

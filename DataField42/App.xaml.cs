@@ -29,7 +29,7 @@ public partial class App : Application
 
         _logger.LogInformation($"Application starting. Version: {UpdateManager.Version}.");
 
-        var settingsService = new SettingsService("DataField42/Settings.ini");
+        var settingsService = new SettingsService("DataFieldVietnam/Settings.ini");
         var bf1942Client = new Bf1942Client("BfVietnam.exe");
         var mainWindowViewModel = new MainWindowViewModel(settingsService, bf1942Client, loggerFactory);
 
@@ -37,16 +37,51 @@ public partial class App : Application
         mainWindow.Show();
         MainWindow = mainWindow;
 
+        Task.Run(CleanUpUpdateLeftovers);
         Task.Run(() => RunStartupUpdate(loggerFactory));
+    }
+
+    /// <summary>
+    /// Deletes the bootstrap the updater left behind after a self-update. The updater downloads itself
+    /// into the game folder, swaps the client, relaunches it, and exits — so its ~54 MB exe (and any
+    /// stray temp) is only ever present as an update artifact, safe to remove here.
+    /// </summary>
+    private static void CleanUpUpdateLeftovers()
+    {
+        // The updater exits at almost the same moment we start, so it can still hold its file for a
+        // beat. Retry briefly; if it is somehow still locked, the next launch clears it. Best-effort —
+        // never let cleanup interfere with startup.
+        try
+        {
+            // Environment.ProcessPath is the real exe location even for a single-file publish, where
+            // AppContext.BaseDirectory would point at the extraction folder instead.
+            var gameFolder = Path.GetDirectoryName(Environment.ProcessPath) ?? Directory.GetCurrentDirectory();
+            foreach (var name in new[] { UpdateManager.UpdaterFileName, "DataFieldVietnam_tmp.exe" })
+            {
+                var path = Path.Combine(gameFolder, name);
+                for (var attempt = 0; attempt < 20; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(path))
+                            File.Delete(path);
+                        break;
+                    }
+                    catch (IOException) { System.Threading.Thread.Sleep(50); }
+                    catch (UnauthorizedAccessException) { System.Threading.Thread.Sleep(50); }
+                }
+            }
+        }
+        catch { /* cleanup is best-effort */ }
     }
 
     private static void SetupSerilog()
     {
-        Directory.CreateDirectory("DataField42/Logs");
+        Directory.CreateDirectory("DataFieldVietnam/Logs");
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.File(
-                path: "DataField42/Logs/DataField42.log",
+                path: "DataFieldVietnam/Logs/DataFieldVietnam.log",
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u4} {SourceContext}: {Message:lj}{NewLine}{Exception}",
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 7)
@@ -84,7 +119,7 @@ public partial class App : Application
 
     private static bool IsInAdminDirectory()
     {
-        const string testFileName = "DataField42 - admin test";
+        const string testFileName = "DataFieldVietnam - admin test";
         try
         {
             File.WriteAllText(testFileName, "This is a test.");

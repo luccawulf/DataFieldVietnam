@@ -11,7 +11,7 @@
         xmlns:Controls="clr-namespace:DataField42.Controls"
         xmlns:Converters="clr-namespace:DataField42.Converters"
         mc:Ignorable="d"
-        Title="DataField42"
+        Title="DataField Vietnam"
         Height="450" Width="800"
         WindowStartupLocation="CenterScreen"
         WindowStyle="SingleBorderWindow"
@@ -78,7 +78,7 @@
                         SizeType="ViewBoxToSizeNoStretch"
                         OverrideStrokeColor="#d4d4d4" />
                 </Controls:SimpleButton>
-                <Label Margin="120,0,0,0" Height="30" Foreground="#d4d4d4" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontWeight="Bold" FontSize="15">DataField42</Label>
+                <Label Margin="120,0,0,0" Height="30" Foreground="#d4d4d4" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontWeight="Bold" FontSize="15">DataField Vietnam</Label>
             </DockPanel>
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
@@ -151,7 +151,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Foreground="#FA9405" VerticalAlignment="Center" Padding="0" Text="The DataField42 patch is missing from BF1942.exe. Press Apply to repair this." TextWrapping="Wrap"/>
+                                    <TextBlock Foreground="#FA9405" VerticalAlignment="Center" Padding="0" Text="The DataField Vietnam patch is missing from BfVietnam.exe. Press Apply to repair this." TextWrapping="Wrap"/>
                                     <Controls:SimpleButton Grid.Column="1" Command="{Binding ApplyDataField42PatchCommand}">
                                         <Label Content="Apply" Foreground="#d4d4d4" />
                                     </Controls:SimpleButton>

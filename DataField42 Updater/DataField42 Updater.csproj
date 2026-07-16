@@ -7,6 +7,11 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Output is DataFieldVietnam_updater.exe: the client downloads it (UpdateManager.UpdaterFileName)
+         and runs it to swap itself. The project folder/namespace stay DataField42 (invisible). This
+         also fixes the old mismatch where the project built "DataField42 Updater.exe" but the client
+         expected "DataField42_updater.exe". -->
+    <AssemblyName>DataFieldVietnam_updater</AssemblyName>
   </PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)'=='Release'">

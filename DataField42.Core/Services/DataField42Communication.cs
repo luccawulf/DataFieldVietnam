@@ -11,7 +11,10 @@ using System.Net.Sockets;
 /// </summary>
 public class DataField42Communication : TcpCommunicationBase
 {
-    public const string CentralDbDomainName = "files.bf1942.eu";
+    // Central file database. Points at the DataField Vietnam server box for now; the BFV port has no
+    // shared central database yet, and this box speaks the same protocol on the same port, so a client
+    // that cannot reach the game server it is joining still has somewhere to sync from.
+    public const string CentralDbDomainName = "188.245.154.232";
     public const int DefaultPort = 28901;
 
     private bool _sessionIsUsed = false;

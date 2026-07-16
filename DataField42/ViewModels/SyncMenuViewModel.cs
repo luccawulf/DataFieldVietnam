@@ -214,8 +214,8 @@ public partial class SyncMenuViewModel : ObservableObject, IPageViewModel
             }
             catch (TimeoutException)
             {
-                _logger.LogInformation($"Server {_syncParameters.Ip} does not have DataField42.");
-                PostMessage($"Server doesn't have DataField42");
+                _logger.LogInformation($"Server {_syncParameters.Ip} does not have DataField Vietnam.");
+                PostMessage($"Server doesn't have DataField Vietnam");
             }
             catch (Exception e)
             {
@@ -245,11 +245,11 @@ public partial class SyncMenuViewModel : ObservableObject, IPageViewModel
             {
                 try
                 {
-                    ILocalFileCacheManager localFileCacheManager = new LocalFileCacheManager("DataField42/cache", "DataField42/tmp", "", _loggerFactory.CreateLogger<LocalFileCacheManager>());
+                    ILocalFileCacheManager localFileCacheManager = new LocalFileCacheManager("DataFieldVietnam/cache", "DataFieldVietnam/tmp", "", _loggerFactory.CreateLogger<LocalFileCacheManager>());
                     var downloadDecisionMaker = new DownloadDecisionMaker(_syncRuleManager, localFileCacheManager, _loggerFactory.CreateLogger<DownloadDecisionMaker>());
                     _downloadManager = new DownloadManager(_communicationWithServer, downloadDecisionMaker, localFileCacheManager, _loggerFactory.CreateLogger<DownloadManager>());
 
-                    PostMessage("DataField42 is calculating files..");
+                    PostMessage("DataField Vietnam is calculating files..");
                     _logger.LogDebug("Requesting file list from server/db.");
                     var fileInfos = await _downloadManager.DownloadFilesRequest(
                         _syncParameters.Mod,
@@ -258,6 +258,15 @@ public partial class SyncMenuViewModel : ObservableObject, IPageViewModel
                         _syncParameters.Port,
                         _syncParameters.KeyHash,
                         _cancelationTokenSource.Token);
+
+                    // The server corrects the mod when the client asked for one that does not have the
+                    // map -- a Battlefield Vietnam client joining from base BFVietnam cannot know what
+                    // the server runs. Carry the correction, or we would rejoin on the wrong mod.
+                    if (_downloadManager.Mod != null && _downloadManager.Mod != _syncParameters.Mod)
+                    {
+                        _logger.LogInformation($"Mod corrected by server offer: {_syncParameters.Mod} -> {_downloadManager.Mod}.");
+                        _syncParameters.Mod = _downloadManager.Mod;
+                    }
 
                     (var hasMod, var hasMap) = _downloadManager.VerifyFileList();
                     var fileInfosOfFilesToDownload = fileInfos.Where(x => x.SyncType == SyncType.Download);
@@ -285,7 +294,7 @@ public partial class SyncMenuViewModel : ObservableObject, IPageViewModel
                     else
                     {
                         _logger.LogInformation($"Pending download: {numberOfFilesExpected} files, {_totalSizeExpected} bytes total from {_communicationWithServer.DisplayName}.");
-                        PostMessage($"DataField42 wants to download {numberOfFilesExpected} files which is a total of {_totalSizeExpected.ToReadableFileSize()}, from {_communicationWithServer.DisplayName}");
+                        PostMessage($"DataField Vietnam wants to download {numberOfFilesExpected} files which is a total of {_totalSizeExpected.ToReadableFileSize()}, from {_communicationWithServer.DisplayName}");
                         stageSuccessful = true;
                         if (_syncRuleManager.IsAutoSyncEnabled(_communicationWithServer.DisplayName))
                             Download();

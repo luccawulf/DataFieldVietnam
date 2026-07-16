@@ -344,6 +344,10 @@ class DataField42TCPHandler(socketserver.BaseRequestHandler):
         elif header == "download" and len(arguments) >= 5:
             arguments = arguments[:5] + [arguments[5:]]
             download_files(communication, *arguments)
+        elif header == "update" and len(arguments) == 1:
+            send_update(communication, *arguments)
+        elif header == "updateFile" and len(arguments) == 1:
+            send_update_file(communication, *arguments)
         else:
             communication.send("unknown identifier")
         log_info("#### Connection Closed ####")
@@ -352,6 +356,59 @@ class DataField42TCPHandler(socketserver.BaseRequestHandler):
 def handshake(communication: DataField42Communication, version: str):
     redirect_server_ip = "null" if dataField42_server.redirect_server_ip == "" else dataField42_server.redirect_server_ip
     communication.send(f"{redirect_server_ip} {dataField42_server_version}", await_acknowledgement=False)
+
+
+# --- client auto-update ----------------------------------------------------------------------------
+# A client that finds this server reporting a newer version in its handshake asks for these. Put the
+# built executables in an "update_files" folder next to this script, and set dataField42_server_version
+# (below) to the new client's version. Keep Major.Minor equal to the clients you serve -- the sync path
+# rejects a mismatched Major/Minor -- so bump only the third/fourth number to push a client update.
+UPDATE_FILES_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "update_files")
+
+# The small bootstrap the client downloads first and runs; it then pulls the client exe over itself.
+UPDATER_FILE_NAME = "DataFieldVietnam_updater.exe"
+
+# "updateFile" names arrive from the client, so only these may be served -- never an arbitrary path.
+UPDATE_FILE_ALLOWLIST = {"datafieldvietnam.exe", "datafieldvietnam_updater.exe"}
+
+
+def _resolve_update_file(name: str) -> str | None:
+    # Case-insensitive lookup within the update folder; basename only, so a client cannot escape it.
+    if not os.path.isdir(UPDATE_FILES_DIRECTORY):
+        return None
+    return smart_path_join(UPDATE_FILES_DIRECTORY, os.path.basename(name))
+
+
+def _serve_file_with_size(communication: DataField42Communication, path: str):
+    # Matches the client: ReceiveUlong (size), SendAcknowledgement, ReceiveFile, SendAcknowledgement.
+    communication.send(os.path.getsize(path))   # size string, length-prefixed; awaits the client's "ok"
+    communication.send_file(path)               # raw bytes; awaits the client's final "ok"
+
+
+def send_update(communication: DataField42Communication, client_version: str):
+    """Serve the updater bootstrap to a client that has decided it is behind."""
+    path = _resolve_update_file(UPDATER_FILE_NAME)
+    if path is None:
+        log_error(f"Client on {client_version} asked to update, but {UPDATER_FILE_NAME} is missing from {UPDATE_FILES_DIRECTORY}")
+        communication.send("update not available", await_acknowledgement=False)
+        return
+    log_info(f"Serving updater to a client on version {client_version}")
+    _serve_file_with_size(communication, path)
+
+
+def send_update_file(communication: DataField42Communication, file_name: str):
+    """Serve one allow-listed update executable by name (the updater asks for the client exe)."""
+    if os.path.basename(file_name).lower() not in UPDATE_FILE_ALLOWLIST:
+        log_warning(f"Refusing updateFile for a name that is not allow-listed: {file_name!r}")
+        communication.send("file not available", await_acknowledgement=False)
+        return
+    path = _resolve_update_file(file_name)
+    if path is None:
+        log_error(f"updateFile {file_name!r} requested but not present in {UPDATE_FILES_DIRECTORY}")
+        communication.send("file not available", await_acknowledgement=False)
+        return
+    log_info(f"Serving update file: {os.path.basename(path)}")
+    _serve_file_with_size(communication, path)
 
 
 # Central database this server registers with. bf1942.eu is to host Battlefield Vietnam content too,
@@ -445,7 +502,7 @@ class DataField42Server:
         self.redirect_server_ip = redirect_server_ip
 
     def start(self):
-        log_info("Starting DataField42 server")
+        log_info("Starting DataField Vietnam server")
         self.start_heartbeat_and_update_monitor()
         self.start_file_server()
 
@@ -505,6 +562,70 @@ class ConnectionToDataField42Master:
         update_and_restart_script(new_script)
 
 
+def get_mod_chain(game_directory: str, mod_name: str) -> list[str]:
+    init_con_path = smart_path_join(game_directory, f"mods/{mod_name}/init.con")
+    if init_con_path is None:
+        return []
+    return get_relevant_mod_names(init_con_path)
+
+
+def get_mods_shipping_map(game_directory: str, mods_directory: str, map_name: str) -> list[str]:
+    """Mods whose own levels folder holds <map_name>.rfa."""
+    mods = []
+    for entry in os.listdir(mods_directory):
+        if not os.path.isdir(os.path.join(mods_directory, entry)):
+            continue
+        levels_folder = smart_path_join(game_directory, f"mods/{entry}/{LEVELS_PATH}", True)
+        if levels_folder is None:
+            continue
+        for filename in os.listdir(levels_folder):
+            file_info = get_name_parts(filename)
+            if file_info["name"].lower() == map_name.lower() and file_info["extension"].lower() == ".rfa":
+                mods.append(entry)
+                break
+    return mods
+
+
+def resolve_mod_name(game_directory: str, mods_directory: str, mod_names: list[str], map_name: str, mod_name: str) -> str:
+    """
+    Correct the mod the client asked for to the one that actually ships the map.
+
+    A Battlefield Vietnam client cannot know what mod a server runs: its browser parses mapname,
+    gametype and hostport out of the query reply but never game_id, so someone sitting in base
+    BFVietnam who joins a DiceCity_V server asks us for BFVietnam. That answer is honest and useless
+    -- it describes the client, not the server. The map is the discriminator we do have: the server
+    is running it, so whichever mod ships it is the mod the client actually needs.
+
+    Deliberately conservative. The request stands unless the map is absent from the requested mod's
+    whole chain, so an ordinary missing-map sync is untouched -- including a stock map served under a
+    custom mod, where the map lives in the base and the derived mod must still be the answer.
+    """
+    if map_name == "*":
+        return mod_name
+
+    candidates = get_mods_shipping_map(game_directory, mods_directory, map_name)
+    if not candidates:
+        return mod_name
+
+    candidates_lower = [candidate.lower() for candidate in candidates]
+
+    if mod_name.lower() in mod_names:
+        if any(mod.lower() in candidates_lower for mod in get_mod_chain(game_directory, mod_name)):
+            return mod_name
+
+    # Several mods can ship the same map name. The one being served is the most derived of them: the
+    # one that no other candidate is built on top of.
+    resolved = candidates[0]
+    for candidate in candidates:
+        others = [other for other in candidates if other.lower() != candidate.lower()]
+        if not any(candidate.lower() in [mod.lower() for mod in get_mod_chain(game_directory, other)] for other in others):
+            resolved = candidate
+            break
+
+    log_warning(f"Client asked for mod '{mod_name}', which does not have map '{map_name}'; serving '{resolved}' instead")
+    return resolved
+
+
 def get_files_to_sync(map_name: str, mod_name: str) -> list[list[str]]:
     files = []
     game_directory = dataField42_server.game_directory
@@ -512,6 +633,7 @@ def get_files_to_sync(map_name: str, mod_name: str) -> list[list[str]]:
 
     if mods_directory is not None:
         mod_names = [item.lower() for item in os.listdir(mods_directory) if os.path.isdir(os.path.join(mods_directory, item))]
+        mod_name = resolve_mod_name(game_directory, mods_directory, mod_names, map_name, mod_name)
         if mod_name.lower() in mod_names:
             all_relevant_mod_names = get_relevant_mod_names(smart_path_join(game_directory, f"mods/{mod_name}/init.con"))
             for relevant_mod_name in all_relevant_mod_names:
@@ -608,6 +730,12 @@ def download_files(communication: DataField42Communication, map_name: str, mod_n
     communication.await_acknowledgement()
 
 
+# The version reported to clients in the handshake, and the trigger for auto-update: a client whose
+# version is lower downloads the exe from update_files/. INVARIANT: this must equal the version of the
+# DataFieldVietnam.exe sitting in update_files/, or a client updates, still reads a lower version off the
+# new exe, and updates again forever. To push a release: build the client at the new version, drop it
+# (and the updater) in update_files/, then set this to match. Keep Major.Minor equal to the clients you
+# serve -- the sync path rejects a mismatched Major/Minor -- so bump only the third/fourth number.
 dataField42_server_version = Version("2.1.0.0")
 
 # The directory holding the Mods folder to serve, defaulting to the working directory.

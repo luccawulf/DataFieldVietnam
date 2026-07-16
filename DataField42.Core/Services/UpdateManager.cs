@@ -8,7 +8,9 @@ public class UpdateManager
     private readonly DataField42Communication _communication;
     private readonly ILogger<UpdateManager> _logger;
 
-    private const string UpdaterFileName = "DataField42_updater.exe";
+    // Public so the client can clean this up: after an update the updater relaunches the client and
+    // exits, leaving the exe it was downloaded as sitting in the game folder.
+    public const string UpdaterFileName = "DataFieldVietnam_updater.exe";
 
     public UpdateManager(DataField42Communication communication, ILogger<UpdateManager> logger)
     {

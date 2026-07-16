@@ -129,7 +129,7 @@ public class CommandLineArgumentsTests
     [Fact]
     public void Bfvmap_is_recognised_as_a_sync_and_join()
     {
-        CommandLineArguments.Parse(["DataField42.exe", "bfvmap", "BCF59AE8:3CD1", "The_City", "DiceCity_V"]);
+        CommandLineArguments.Parse(["DataFieldVietnam.exe", "bfvmap", "BCF59AE8:3CD1", "The_City", "DiceCity_V"]);
         Assert.Equal(CommandLineArgumentIdentifier.SyncAndJoinServer, CommandLineArguments.Identifier);
     }
 }

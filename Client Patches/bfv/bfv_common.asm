@@ -17,8 +17,9 @@ HOOK_MAP    equ 0xE23050        ; hook B body
 
 ; --- imports (IAT slots in BfVietnam.exe v1.21) ------------------------------------------------
 ; BFV statically links the CRT, so upstream's _spawnl does not exist here.
-SHELLEXECUTEA equ 0xB422E0
-EXITPROCESS   equ 0xB4225C
+SHELLEXECUTEA  equ 0xB422E0
+EXITPROCESS    equ 0xB4225C
+GETCOMMANDLINEA equ 0xB422B8
 
 ; --- game structures ---------------------------------------------------------------------------
 ; MSVC 7.1 std::string, sizeof 0x1C: { +0x00 pad, +0x04 buf[16]/ptr, +0x14 size, +0x18 capacity }

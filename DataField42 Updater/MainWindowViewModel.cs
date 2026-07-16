@@ -7,8 +7,8 @@ namespace DataField42_Updater;
 
 public partial class MainWindowViewModel : ObservableObject
 {
-    private const string temporaryClientExeName = "DataField42_tmp.exe";
-    private const string clientExeName = "DataField42.exe";
+    private const string temporaryClientExeName = "DataFieldVietnam_tmp.exe";
+    private const string clientExeName = "DataFieldVietnam.exe";
 
     [ObservableProperty]
     private bool _showPopup;
@@ -80,7 +80,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            DisplayError($"Can't download DataField42.exe: {ex.Message}");
+            DisplayError($"Can't download DataFieldVietnam.exe: {ex.Message}");
         }
     }
 

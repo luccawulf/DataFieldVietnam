@@ -98,18 +98,18 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 if (!_bf1942Client.IsDataField42PatchApplied())
                 {
-                    _logger.LogInformation("Applying DataField42 patch to BF1942.exe.");
+                    _logger.LogInformation("Applying DataField Vietnam patch to BfVietnam.exe.");
                     _bf1942Client.ApplyDataField42Patch();
                 }
                 else
                 {
-                    _logger.LogDebug("DataField42 patch already applied.");
+                    _logger.LogDebug("DataField Vietnam patch already applied.");
                 }
                 Environment.Exit(0);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to apply DataField42 patch.");
+                _logger.LogError(ex, "Failed to apply DataField Vietnam patch.");
                 DisplayError(ex.Message);
             }
         }
@@ -117,12 +117,12 @@ public partial class MainWindowViewModel : ObservableObject
         {
             if (!_bf1942Client.IsDataField42PatchApplied())
             {
-                _logger.LogWarning("DataField42 patch is not applied to BF1942.exe.");
+                _logger.LogWarning("DataField Vietnam patch is not applied to BfVietnam.exe.");
                 WarnDataField42PatchNotApplied = true;
             }
             else
             {
-                _logger.LogDebug("DataField42 patch verified as applied.");
+                _logger.LogDebug("DataField Vietnam patch verified as applied.");
             }
         }
 
@@ -224,16 +224,16 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void ApplyDataField42Patch()
     {
-        _logger.LogInformation("Applying DataField42 patch manually.");
+        _logger.LogInformation("Applying DataField Vietnam patch manually.");
         try
         {
             _bf1942Client.ApplyDataField42Patch();
             WarnDataField42PatchNotApplied = false;
-            _logger.LogInformation("DataField42 patch applied successfully.");
+            _logger.LogInformation("DataField Vietnam patch applied successfully.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply DataField42 patch.");
+            _logger.LogError(ex, "Failed to apply DataField Vietnam patch.");
             DisplayError(ex.Message);
         }
     }

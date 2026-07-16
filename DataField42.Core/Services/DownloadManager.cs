@@ -11,6 +11,9 @@ public class DownloadManager
     private string? _map;
     private List<FileInfo>? _fileInfos;
 
+    /// <summary>The mod being synced: the one requested, unless the server's offer corrected it.</summary>
+    public string? Mod => _mod;
+
     public DownloadManager(
         DataField42Communication dataField42Communication,
         DownloadDecisionMaker downloadDecisionMaker,
@@ -38,6 +41,8 @@ public class DownloadManager
         _fileInfos = await _communication.ReceiveFileInfos(cancellationToken);
         _logger.LogDebug($"Received {_fileInfos.Count} file infos from server.");
 
+        AdoptModFromOffer();
+
         // TODO: better messaging for double files in list 
         // TODO: check for absense of base rfa
 
@@ -53,6 +58,32 @@ public class DownloadManager
         _logger.LogInformation($"Download decision: {toDownload} to download, {fromCache} from cache, {local} already local, {skipped} skipped.");
 
         return _fileInfos;
+    }
+
+    /// <summary>
+    /// Takes the mod from the offer when the server answered for a different one than was asked for.
+    /// </summary>
+    /// <remarks>
+    /// A Battlefield Vietnam client cannot know what mod a server runs -- its browser never parses
+    /// game_id -- so someone sitting in base BFVietnam who joins a DiceCity_V server asks for
+    /// BFVietnam. The server corrects that from the map and answers with the mod that ships it.
+    /// Without adopting the correction VerifyFileList would reject a perfectly good offer, and the
+    /// game would be relaunched on the very mod it could not join with.
+    /// </remarks>
+    private void AdoptModFromOffer()
+    {
+        if (_fileInfos == null || _mod == null || _map == null || _map == "*")
+            return;
+
+        var levelOfRequestedMap = _fileInfos.FirstOrDefault(x =>
+            x.FileType == Bf1942FileType.Level &&
+            Path.GetFileNameWithoutExtension(x.FileNameWithoutPatchNumber).ToLower() == _map.ToLower());
+
+        if (levelOfRequestedMap == null || levelOfRequestedMap.Mod.ToLower() == _mod.ToLower())
+            return;
+
+        _logger.LogInformation($"Server answered for mod {levelOfRequestedMap.Mod}, not the requested {_mod}; adopting it.");
+        _mod = levelOfRequestedMap.Mod;
     }
 
     /// <summary>Step 2 in synchronizing files.</summary>

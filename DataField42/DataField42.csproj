@@ -8,6 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>logo.ico</ApplicationIcon>
+    <!-- Output filename is DataFieldVietnam.exe. The in-game hook launches the client by this literal
+         and the updater replaces a file by this name, so the hook asm (s_exe), the regenerated patch
+         table, and DataField42 Updater's clientExeName all have to match it. The namespace/assembly
+         identity stays DataField42 (invisible to users; renaming it is pure churn). -->
+    <AssemblyName>DataFieldVietnam</AssemblyName>
+    <Product>DataField Vietnam</Product>
+    <AssemblyTitle>DataField Vietnam</AssemblyTitle>
+    <Authors>LuccaWulf</Authors>
+    <Description>DataField Vietnam — automatic map/mod downloader for Battlefield Vietnam. Based on DataField42 by Arklyiën.</Description>
   </PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)'=='Release'">

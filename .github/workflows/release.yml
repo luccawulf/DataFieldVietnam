@@ -37,5 +37,5 @@ jobs:
         with:
           files: |
             DataField42 Installer/bin/DataField42 v*.exe
-            DataField42/bin/Publish/DataField42.exe
-            DataField42 Updater/bin/Publish/DataField42 Updater.exe
+            DataField42/bin/Publish/DataFieldVietnam.exe
+            DataField42 Updater/bin/Publish/DataFieldVietnam_updater.exe
