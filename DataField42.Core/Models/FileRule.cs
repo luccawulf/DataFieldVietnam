@@ -41,6 +41,7 @@
                 {
                     case "contentcrc32":
                     case "init":
+                    case "levelcheck":
                         fileName += ".con";
                         break;
                     case "mod":
@@ -51,6 +52,9 @@
                         break;
                     case "serverinfo":
                         fileName += ".dds";
+                        break;
+                    case "bfdist":
+                        fileName += ".vlu";
                         break;
                 }
             }

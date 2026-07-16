@@ -145,7 +145,11 @@ class ChecksumRepository:
     def __init__(self, filename: str):
         self.filename = filename
         self.records = self.load_records()
-        self.lock = threading.Lock()  # Lock for thread safety
+        # Reentrant: add_record holds this and then calls save_records, which takes it again. With a
+        # plain Lock that is a self-deadlock, and it fires the first time any new checksum is
+        # recorded -- which on a fresh server is the first file it ever hashes, hanging both the
+        # watchdog and any client waiting on a download listing.
+        self.lock = threading.RLock()
 
     def load_records(self):
         try:
@@ -350,31 +354,61 @@ def handshake(communication: DataField42Communication, version: str):
     communication.send(f"{redirect_server_ip} {dataField42_server_version}", await_acknowledgement=False)
 
 
+# Central database this server registers with. bf1942.eu is to host Battlefield Vietnam content too,
+# so BFV servers belong here as well. Set to None to run standalone -- clients can always sync
+# straight from the server without any central database.
+MASTER_HOST = 'bf1942.eu'
+
+# Whether to replace this script with the master's copy when the master reports a newer version.
+#
+# Heartbeat and self-update share one channel, and they are not the same decision: registering a BFV
+# server with bf1942.eu is fine, but accepting a script from it is only safe once the master serves a
+# BFV-aware build. Until then this stays off, or a live BFV server would quietly pull the BF1942
+# script and undo the port on the next heartbeat.
+ALLOW_SELF_UPDATE = False
+
+"""
+Battlefield Vietnam ships a different set of archives to BF1942: it has effects.rfa and music.rfa,
+and has no shaders.rfa or treeMesh.rfa. Names are matched case-insensitively by smart_path_join,
+but the relative path is sent to the client verbatim, so it is spelled the way the game does.
+"""
 ARCHIVES = [
     "Archives/ai.rfa",
     "Archives/aiMeshes.rfa",
     "Archives/animations.rfa",
-    "Archives/Font.rfa",
+    "Archives/animations_001.rfa",
+    "Archives/effects.rfa",
+    "Archives/font.rfa",
     "Archives/menu.rfa",
     "Archives/menu_001.rfa",
-    "Archives/Objects.rfa",
-    "Archives/shaders.rfa",
+    "Archives/music.rfa",
+    "Archives/objects.rfa",
+    "Archives/objects_001.rfa",
     "Archives/sound.rfa",
     "Archives/sound_001.rfa",
     "Archives/standardMesh.rfa",
-    "Archives/StandardMesh_001.rfa",
+    "Archives/standardMesh_001.rfa",
     "Archives/texture.rfa",
     "Archives/texture_001.rfa",
-    "Archives/treeMesh.rfa",
-    "Archives/bf1942/game.rfa",
+    "Archives/BfVietnam/game.rfa",
 ]
+
+# LevelCheck.con is the per-mod manifest of archive hashes that the client checks its own .rfa files
+# against, so it has to travel with them -- a synced archive set paired with a stale manifest is
+# exactly the mismatch the game kicks for.
 MOD_MISC_FILES = [
     "contentCrc32.con",
     "init.con",
+    "LevelCheck.con",
     "mod.dll",
     "lexiconAll.dat",
     "serverInfo.dds",
+    "bfdist.vlu",
 ]
+
+# Every mod keeps its maps under this fixed subfolder, whatever the mod is called -- the WW2 mod's
+# Pacific maps still live in Archives/BfVietnam/Levels.
+LEVELS_PATH = "Archives/BfVietnam/Levels"
 
 
 def get_relevant_mod_names(init_con_path: str) -> list[str]:
@@ -423,6 +457,11 @@ class DataField42Server:
         s.serve_forever()
 
     def start_heartbeat_and_update_monitor(self):
+        if MASTER_HOST is None:
+            log_info("No central database configured: not sending heartbeats.")
+            return
+        if not ALLOW_SELF_UPDATE:
+            log_info(f"Heartbeating to {MASTER_HOST}; self-update is off.")
         threading.Thread(target=self.heartbeat_and_update_monitor_thread).start()
 
     def heartbeat_and_update_monitor_thread(self):
@@ -431,9 +470,13 @@ class DataField42Server:
             try:
                 master_data_field42_server_version = connection_to_data_field42_master.send_heartbeat()
                 if Version(master_data_field42_server_version) > dataField42_server_version:
-                    connection_to_data_field42_master.update()
+                    if ALLOW_SELF_UPDATE:
+                        connection_to_data_field42_master.update()
+                    else:
+                        log_info(f"{MASTER_HOST} has {master_data_field42_server_version} "
+                                 f"(local {dataField42_server_version}), but self-update is off.")
             except Exception as e:
-                log_error(f"Can't send heartbeat to bf1942.eu: {e}")
+                log_error(f"Can't send heartbeat to {MASTER_HOST}: {e}")
             time.sleep(60)
 
 
@@ -444,8 +487,8 @@ class ConnectionToDataField42Master:
 
     def connect(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect(('bf1942.eu', 28901))
-        self.communication = DataField42Communication(self.socket, 'bf1942.eu')
+        self.socket.connect((MASTER_HOST, 28901))
+        self.communication = DataField42Communication(self.socket, MASTER_HOST)
 
     def send_heartbeat(self):
         self.connect()
@@ -478,12 +521,12 @@ def get_files_to_sync(map_name: str, mod_name: str) -> list[list[str]]:
                     return []
 
                 # mod map RFAs:
-                levels_folder = smart_path_join(game_directory, f"mods/{relevant_mod_name}/Archives/bf1942/levels", True)
+                levels_folder = smart_path_join(game_directory, f"mods/{relevant_mod_name}/{LEVELS_PATH}", True)
                 if levels_folder is not None:
                     for filename in os.listdir(levels_folder):
                         file_info = get_name_parts(filename)
                         if file_info["name"].lower() == map_name.lower() and file_info["extension"].lower() == ".rfa":
-                            files.append([relevant_mod_name, "Archives/bf1942/levels/" + filename, os.path.join(levels_folder, filename), Bf1942FileTypes.level])
+                            files.append([relevant_mod_name, f"{LEVELS_PATH}/" + filename, os.path.join(levels_folder, filename), Bf1942FileTypes.level])
 
                 # mod base files:
                 for file_path_relative in ARCHIVES:
@@ -566,8 +609,23 @@ def download_files(communication: DataField42Communication, map_name: str, mod_n
 
 
 dataField42_server_version = Version("2.1.0.0")
+
+# The directory holding the Mods folder to serve, defaulting to the working directory.
+#
+# Worth passing explicitly on a dedicated server: what the game server runs is a stripped build with
+# geometry and sounds removed, and serving those to a client would fail its archive check. The files
+# handed out have to be the full client ones, which usually means a separate tree from the live
+# server's own game directory.
+#
+# Built before the checksum manager: constructing that starts a watchdog thread which reads this
+# global straight away, so the other order is a race the thread can lose with a NameError, leaving
+# checksums to be computed on demand during the first client sync instead of in advance.
+dataField42_server = DataField42Server(sys.argv[1] if len(sys.argv) > 1 else "")
+
 checksum_repository_manager = ChecksumRepositoryManager("ChecksumRepository.json")
 sync_rule_manager = SyncRuleManager("Synchronization rules.txt")
 
-dataField42_server = DataField42Server("")
-dataField42_server.start()
+# Only bind the socket when run as a script, so the file-gathering can be exercised by importing it.
+if __name__ == "__main__":
+    log_info(f"Serving client files from: {os.path.abspath(dataField42_server.game_directory or '.')}")
+    dataField42_server.start()

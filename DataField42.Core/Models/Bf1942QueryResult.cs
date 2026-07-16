@@ -1,5 +1,21 @@
 using System.Net;
 
+/// <summary>
+/// A parsed GameSpy \status\ reply from a Refractor-engine server (BF1942 or Battlefield Vietnam).
+/// </summary>
+/// <remarks>
+/// Both games speak the same protocol but differ in spelling, so keys are looked up through a list
+/// of candidates, BF1942's name first: mapId/map_id, gameId/game_id, playername_N/player_N,
+/// tickets1/tickets_t0, allied_team_ratio/us_team_ratio, time_limit/timelimit.
+///
+/// Servers also disagree within a single game. A live BF1942 CTF server was observed omitting
+/// ticket_ratio outright, and BFV never sends gamename, roundTime, hit_indicator, tk_mode,
+/// averageFPS, content_check or unpure_mods. Treating every key as mandatory therefore loses whole
+/// servers from the browser over a field nobody needs, so only what the browser and the file sync
+/// genuinely depend on is required -- host, map, player counts and the mod id. Everything else
+/// falls back to a default. A key that is present but malformed still throws, since that is a real
+/// protocol violation rather than a dialect difference.
+/// </remarks>
 public class Bf1942QueryResult
 {
     public string GameName { get; init; }
@@ -82,144 +98,156 @@ public class Bf1942QueryResult
 
     public Bf1942QueryResult(Dictionary<string, string> properties)
     {
-        GameName = Str(properties, "gamename");
-        GameVersion = Str(properties, "gamever");
-        GameId = Str(properties, "gameId");
-        HostPort = Uint(properties, "hostport");
+        // Required: without these the server is not usable in the browser or for syncing.
         HostName = Str(properties, "hostname");
+        HostPort = Uint(properties, "hostport");
         MapName = Str(properties, "mapname");
         NumberOfPlayers = Uint(properties, "numplayers");
         MaximumNumberOfPlayers = Uint(properties, "maxplayers");
-        HasPassword = Bool(properties, "password");
-        Mod = Str(properties, "mapId");
-        GameType = Str(properties, "gametype");
-        GameMode = Str(properties, "gamemode");
+        Mod = Str(properties, "mapId", "map_id");
 
-        Tickets1 = Int(properties, "tickets1");
-        Tickets2 = Int(properties, "tickets2");
+        GameName = OptStr(properties, "", "gamename");
+        GameVersion = OptStr(properties, "", "gamever");
+        GameId = OptStr(properties, "", "gameId", "game_id");
+        HasPassword = OptBool(properties, false, "password");
+        GameType = OptStr(properties, "", "gametype");
+        GameMode = OptStr(properties, "", "gamemode");
 
-        RoundTime = Int(properties, "roundTime");
-        RoundTimeRemain = Int(properties, "roundTimeRemain");
+        Tickets1 = OptInt(properties, 0, "tickets1", "tickets_t0");
+        Tickets2 = OptInt(properties, 0, "tickets2", "tickets_t1");
 
-        AutoBalanceTeams = Bool(properties, "auto_balance_teams");
-        UsesPunkbuster = Bool(properties, "sv_punkbuster");
-        HitIndicator = Bool(properties, "hit_indicator");
-        FreeCamera = Bool(properties, "free_camera");
-        ExternalView = Bool(properties, "external_view");
-        AllowNoseCam = Bool(properties, "allow_nose_cam");
+        RoundTime = OptInt(properties, 0, "roundTime");
+        RoundTimeRemain = OptInt(properties, 0, "roundTimeRemain");
 
-        DedicatedServerType = (DedicatedServerType)Int(properties, "dedicated");
-        ReservedSlots = Int(properties, "reservedslots");
-        NumberOfRounds = Int(properties, "number_of_rounds");
-        NameTagDistance = Int(properties, "name_tag_distance");
-        NameTagDistanceScope = Int(properties, "name_tag_distance_scope");
-        TimeLimit = IntThatCanBeInfinite(properties, "time_limit");
-        AlliedTeamRatio = Int(properties, "allied_team_ratio");
-        AxisTeamRatio = Int(properties, "axis_team_ratio");
-        BandwidthChokeLimit = Int(properties, "bandwidth_choke_limit");
-        ContentCheck = Int(properties, "content_check");
-        AverageFps = Int(properties, "averageFPS");
-        Cpu = Int(properties, "cpu");
-        Status = Int(properties, "status");
+        AutoBalanceTeams = OptBool(properties, false, "auto_balance_teams");
+        UsesPunkbuster = OptBool(properties, false, "sv_punkbuster");
+        HitIndicator = OptBool(properties, false, "hit_indicator");
+        FreeCamera = OptBool(properties, false, "free_camera");
+        ExternalView = OptBool(properties, false, "external_view");
+        AllowNoseCam = OptBool(properties, false, "allow_nose_cam");
 
-        TicketRatio = IntWithPostfix(properties, "ticket_ratio", '%');
-        SpawnDelay = IntWithPostfix(properties, "spawn_delay", 's');
-        SpawnWaveTime = IntWithPostfix(properties, "spawn_wave_time", 's');
-        TkMode = Str(properties, "tk_mode");
-        KickBack = IntWithPostfix(properties, "kickback", '%');
-        KickBackOnSplash = IntWithPostfix(properties, "kickback_on_splash", '%');
-        SoldierFriendlyFire = IntWithPostfix(properties, "soldier_friendly_fire", '%');
-        SoldierFriendlyFireOnSplash = IntWithPostfix(properties, "soldier_friendly_fire_on_splash", '%');
-        VehicleFriendlyFire = IntWithPostfix(properties, "vehicle_friendly_fire", '%');
-        VehicleFriendlyFireOnSplash = IntWithPostfix(properties, "vehicle_friendly_fire_on_splash", '%');
-        GameStartDelay = IntWithPostfix(properties, "game_start_delay", 's');
-        ActiveMods = Str(properties, "active_mods");
+        DedicatedServerType = (DedicatedServerType)OptInt(properties, 0, "dedicated");
+        ReservedSlots = OptInt(properties, 0, "reservedslots");
+        NumberOfRounds = OptInt(properties, 0, "number_of_rounds");
+        NameTagDistance = OptInt(properties, 0, "name_tag_distance");
+        NameTagDistanceScope = OptInt(properties, 0, "name_tag_distance_scope");
+        TimeLimit = OptIntThatCanBeInfinite(properties, "time_limit", "timelimit");
+        AlliedTeamRatio = OptInt(properties, 0, "allied_team_ratio", "us_team_ratio");
+        AxisTeamRatio = OptInt(properties, 0, "axis_team_ratio", "nva_team_ratio");
+        BandwidthChokeLimit = OptInt(properties, 0, "bandwidth_choke_limit");
+        ContentCheck = OptInt(properties, 0, "content_check");
+        AverageFps = OptInt(properties, 0, "averageFPS");
+        Cpu = OptInt(properties, 0, "cpu");
+        Status = OptInt(properties, 0, "status");
 
-        var unpureStr = Str(properties, "unpure_mods");
+        TicketRatio = OptIntWithPostfix(properties, 0, '%', "ticket_ratio");
+        SpawnDelay = OptIntWithPostfix(properties, 0, 's', "spawn_delay");
+        SpawnWaveTime = OptIntWithPostfix(properties, 0, 's', "spawn_wave_time");
+        TkMode = OptStr(properties, "", "tk_mode");
+        KickBack = OptIntWithPostfix(properties, 0, '%', "kickback");
+        KickBackOnSplash = OptIntWithPostfix(properties, 0, '%', "kickback_on_splash");
+        SoldierFriendlyFire = OptIntWithPostfix(properties, 0, '%', "soldier_friendly_fire");
+        SoldierFriendlyFireOnSplash = OptIntWithPostfix(properties, 0, '%', "soldier_friendly_fire_on_splash");
+        VehicleFriendlyFire = OptIntWithPostfix(properties, 0, '%', "vehicle_friendly_fire");
+        VehicleFriendlyFireOnSplash = OptIntWithPostfix(properties, 0, '%', "vehicle_friendly_fire_on_splash");
+        GameStartDelay = OptIntWithPostfix(properties, 0, 's', "game_start_delay");
+        ActiveMods = OptStr(properties, "", "active_mods");
+
+        var unpureStr = OptStr(properties, "", "unpure_mods");
         UnpureMods = string.IsNullOrEmpty(unpureStr)
             ? []
             : [.. unpureStr.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0)];
 
+        // Servers can advertise more players than they send blocks for, so a name that never
+        // arrived is skipped rather than taken as a protocol violation.
         Players = [];
         for (int i = 0; i < NumberOfPlayers; i++)
         {
+            var name = OptStr(properties, "", "playername_" + i, "player_" + i);
+            if (name.Length == 0)
+                continue;
+
             Players.Add(new Player(
-                Bf1942Encoding.Decode(Bf1942Encoding.Encode(Str(properties, "playername_" + i)), applySmartEncodingDetection: true),
-                Str(properties, "team_" + i),
-                Str(properties, "score_" + i),
-                Str(properties, "kills_" + i),
-                Str(properties, "deaths_" + i),
-                Str(properties, "ping_" + i),
-                properties.ContainsKey("keyhash_" + i) ? Str(properties, "keyhash_" + i) : ""
+                Bf1942Encoding.Decode(Bf1942Encoding.Encode(name), applySmartEncodingDetection: true),
+                OptStr(properties, "", "team_" + i),
+                OptStr(properties, "", "score_" + i),
+                OptStr(properties, "", "kills_" + i),
+                OptStr(properties, "", "deaths_" + i),
+                OptStr(properties, "", "ping_" + i),
+                OptStr(properties, "", "keyhash_" + i)
             ));
         }
 
-        Location = properties.ContainsKey("location") ? Int(properties, "location") : null;
-        Language = properties.ContainsKey("language") ? Str(properties, "language") : null;
+        Location = properties.ContainsKey("location") ? OptInt(properties, 0, "location") : null;
+        Language = properties.ContainsKey("language") ? OptStr(properties, "", "language") : null;
     }
 
-    private static string Str(Dictionary<string, string> p, string key) => p[key];
-
-    private static int IntWithPostfix(Dictionary<string, string> p, string key, char postfix)
+    /// <summary>
+    /// The value of the first of <paramref name="keys"/> the server actually sent, or null.
+    /// </summary>
+    private static string? Find(Dictionary<string, string> p, string[] keys)
     {
-        try
-        {
-            var value = p[key];
-            if (!value.EndsWith(postfix))
-                throw new FormatException();
-            return int.Parse(value[..^1]);
-        }
-        catch (FormatException)
-        {
-            throw new ProtocolViolationException($"Unexpected int (with postfix {postfix}) value for {key}: {p[key]}");
-        }
+        foreach (var key in keys)
+            if (p.TryGetValue(key, out var value))
+                return value;
+        return null;
     }
 
-    private static int Int(Dictionary<string, string> p, string key)
+    private static string Names(string[] keys) => string.Join('/', keys);
+
+    private static string Str(Dictionary<string, string> p, params string[] keys)
+        => Find(p, keys) ?? throw new ProtocolViolationException($"Missing required key: {Names(keys)}");
+
+    private static uint Uint(Dictionary<string, string> p, params string[] keys)
     {
-        try
-        {
-            return int.Parse(p[key]);
-        }
-        catch (FormatException)
-        {
-            throw new ProtocolViolationException($"Unexpected int value for {key}: {p[key]}");
-        }
+        var value = Str(p, keys);
+        if (!uint.TryParse(value, out var result))
+            throw new ProtocolViolationException($"Unexpected uint value for {Names(keys)}: {value}");
+        return result;
     }
 
-    private static int? IntThatCanBeInfinite(Dictionary<string, string> p, string key)
+    private static string OptStr(Dictionary<string, string> p, string @default, params string[] keys)
+        => Find(p, keys) ?? @default;
+
+    private static int OptInt(Dictionary<string, string> p, int @default, params string[] keys)
     {
-        if (p[key] == "unlimited")
+        var value = Find(p, keys);
+        if (value == null)
+            return @default;
+        if (!int.TryParse(value, out var result))
+            throw new ProtocolViolationException($"Unexpected int value for {Names(keys)}: {value}");
+        return result;
+    }
+
+    private static int OptIntWithPostfix(Dictionary<string, string> p, int @default, char postfix, params string[] keys)
+    {
+        var value = Find(p, keys);
+        if (value == null)
+            return @default;
+        if (!value.EndsWith(postfix) || !int.TryParse(value[..^1], out var result))
+            throw new ProtocolViolationException($"Unexpected int (with postfix {postfix}) value for {Names(keys)}: {value}");
+        return result;
+    }
+
+    private static int? OptIntThatCanBeInfinite(Dictionary<string, string> p, params string[] keys)
+    {
+        var value = Find(p, keys);
+        if (value == null || value == "unlimited")
             return null;
-
-        try
-        {
-            return int.Parse(p[key]);
-        }
-        catch (FormatException)
-        {
-            throw new ProtocolViolationException($"Unexpected int value for {key}: {p[key]}");
-        }
+        if (!int.TryParse(value, out var result))
+            throw new ProtocolViolationException($"Unexpected int value for {Names(keys)}: {value}");
+        return result;
     }
 
-    private static uint Uint(Dictionary<string, string> p, string key)
+    private static bool OptBool(Dictionary<string, string> p, bool @default, params string[] keys)
     {
-        try
-        {
-            return uint.Parse(p[key]);
-        }
-        catch (FormatException)
-        {
-            throw new ProtocolViolationException($"Unexpected uint value for {key}: {p[key]}");
-        }
-    }
-
-    private static bool Bool(Dictionary<string, string> p, string key)
-    {
-        if (p[key] is "on" or "yes" or "1")
+        var value = Find(p, keys);
+        if (value == null)
+            return @default;
+        if (value is "on" or "yes" or "1")
             return true;
-        else if (p[key] is "off" or "no" or "0")
+        if (value is "off" or "no" or "0")
             return false;
-        throw new ProtocolViolationException($"Unexpected bool value for {key}: {p[key]}");
+        throw new ProtocolViolationException($"Unexpected bool value for {Names(keys)}: {value}");
     }
 }

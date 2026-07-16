@@ -30,7 +30,7 @@ public partial class App : Application
         _logger.LogInformation($"Application starting. Version: {UpdateManager.Version}.");
 
         var settingsService = new SettingsService("DataField42/Settings.ini");
-        var bf1942Client = new Bf1942Client("BF1942.exe");
+        var bf1942Client = new Bf1942Client("BfVietnam.exe");
         var mainWindowViewModel = new MainWindowViewModel(settingsService, bf1942Client, loggerFactory);
 
         var mainWindow = new MainWindow(mainWindowViewModel);

@@ -3,20 +3,32 @@ using System.Text;
 
 public class Bf1942Client(string path)
 {
+    /// <summary>
+    /// Launches Battlefield Vietnam, optionally straight into a server.
+    /// </summary>
+    /// <remarks>
+    /// The argument shapes are the ones BfVietnam.exe builds for itself when it relaunches to join a
+    /// server, read out of the exe's own format strings: "+joinServer %s:%s +isInternet 1" for an
+    /// internet server (0 is LAN), " +password ", and "+game %s +restart 1".
+    ///
+    /// Interface 6 is the server browser in BFV as well as BF1942 (tested). The exe also contains a
+    /// hardcoded "+goToInterface 8", but that is the custom-game screen it returns to after a mod
+    /// switch, not the browser.
+    /// </remarks>
     public void Start(string? modId = null, string? ipPort = null, string? password = null)
     {
         if (Debugger.IsAttached)
             Environment.Exit(0);
 
-        string arguments = " +restart 1"; // is space required?
-        if (modId != null) 
+        string arguments = " +restart 1";
+        if (modId != null)
             arguments += $" +game {modId}";
-        if (ipPort != null) 
-            arguments += $" +joinServer {ipPort}";
-        else 
+        if (ipPort != null)
+            arguments += $" +joinServer {ipPort} +isInternet 1";
+        else
             arguments += $" +goToInterface 6";
-        if (password != null) 
-            arguments += $" +password  {password}";
+        if (password != null)
+            arguments += $" +password {password}";
 
         ExternalProcess.SwitchTo(path, arguments);
     }
@@ -68,9 +80,18 @@ public class Bf1942Client(string path)
         }
     }
 
+    /// <summary>
+    /// Reads the CD-key registry path the game itself uses, out of the string baked into the exe.
+    /// </summary>
+    /// <remarks>
+    /// File offset of "SOFTWARE\Electronic Arts\EA Games\Battlefield Vietnam\ergc" in BfVietnam.exe
+    /// v1.21 (.rdata; VA 0xB44E0C). Taken from the exe rather than hardcoded here so a key path that
+    /// does not match the running game shows up as a mismatch instead of silently hashing nothing.
+    /// Note the exe also still carries BF1942's Road to Rome key path at 0x761400 -- not this one.
+    /// </remarks>
     public string GetKeyRegistryPath()
     {
-        var bytes = Read(0x4C52D0, 100);
+        var bytes = Read(0x74400C, 100);
         int nullIndex = Array.IndexOf(bytes, (byte)0x00);
         return Encoding.UTF8.GetString(bytes[..nullIndex]);
     }

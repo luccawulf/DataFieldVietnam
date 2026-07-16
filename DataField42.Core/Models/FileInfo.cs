@@ -93,18 +93,22 @@ public class FileInfo
         {   // mind the order!
             new("movies/", Bf1942FileType.Movie),
             new("music/", Bf1942FileType.Music),
-            new("archives/bf1942/levels/", Bf1942FileType.Level),
-            new("archives/bf1942/", Bf1942FileType.Archive),
+            new("archives/bfvietnam/levels/", Bf1942FileType.Level),
+            new("archives/bfvietnam/", Bf1942FileType.Archive),
             new("archives/", Bf1942FileType.Archive),
             new("", Bf1942FileType.ModMiscFile),
         };
+        // Anything not on this list is rejected outright, so a file the server offers but the client
+        // does not know about takes the whole sync down rather than being skipped.
         List<string> modMiscFileNames = new()
         {
             "contentcrc32.con",
             "init.con",
+            "levelcheck.con",  // Battlefield Vietnam's per-mod archive-hash manifest
             "mod.dll",
             "lexiconall.dat",
             "serverinfo.dds",
+            "bfdist.vlu",
         };
 
         // TODO: allow only certain archives? and only one level?

@@ -33,11 +33,7 @@ public class Bf1942ServerQuery
             {
                 byte[] receiveBytes = (await udpClient.ReceiveAsync(cancellationTokenSource.Token)).Buffer;
 
-                string dataString = Bf1942Encoding.Decode(receiveBytes);
-                var dataList = dataString.Split("\\");
-
-                for (int j = 0; j < dataList.Length / 2; j++)
-                    properties[dataList[j * 2 + 1]] = dataList[j * 2 + 2];
+                GameSpyStatus.Merge(Bf1942Encoding.Decode(receiveBytes), properties);
 
                 if (properties.ContainsKey("final"))
                 {

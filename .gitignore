@@ -6,3 +6,7 @@
 *.user
 
 **/nasm.exe
+
+# Python server bytecode
+__pycache__/
+*.pyc
