@@ -47,14 +47,14 @@ public class DataField42Communication : TcpCommunicationBase
         return (redirectServerIp, versionReceived);
     }
 
-    public async Task ReceiveFile(ulong length, FileStream fileStream, DownloadBackgroundWorker backgroundWorker, CancellationToken cancellationToken)
+    public async Task ReceiveFile(ulong length, Stream fileStream, DownloadBackgroundWorker backgroundWorker, CancellationToken cancellationToken)
     {
         await ReceiveFile(length, fileStream, new List<DownloadBackgroundWorker>() { backgroundWorker }, cancellationToken);
     }
 
     public async Task ReceiveFile(
         ulong length,
-        FileStream fileStream,
+        Stream fileStream,
         IEnumerable<DownloadBackgroundWorker> backgroundWorkers,
         CancellationToken cancellationToken,
         TimeSpan? timeoutDuration = null)
@@ -204,10 +204,15 @@ public class TcpCommunicationBase : IDisposable
         {
             int bytesReadThisIteration = await _stream.ReadAsync(buffer.AsMemory(bytesRead, length - bytesRead));
 
-            bytesRead += bytesReadThisIteration;
+            // A zero-length read means the peer closed, not that it is being slow: reading again can
+            // only return zero as well. Without this the loop spins hot for the whole timeout, so a
+            // server that accepts a connection and hangs up costs the client a busy CPU core for ten
+            // seconds rather than an immediate error.
+            if (bytesReadThisIteration == 0)
+                throw new IOException($"Connection closed after {bytesRead} of {length} bytes.");
 
-            if (bytesReadThisIteration != 0)
-                stopWatch.Restart();
+            bytesRead += bytesReadThisIteration;
+            stopWatch.Restart();
 
             if (stopWatch.Elapsed > timeoutTime)
                 throw new TimeoutException($"Can't receive data in time ({timeoutTime?.TotalSeconds} seconds)");
