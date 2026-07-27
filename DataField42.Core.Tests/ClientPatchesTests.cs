@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 
 namespace DataField42.Core.Tests;
 
@@ -23,22 +24,38 @@ public class ClientPatchesTests
     private const int HookMap = 0xE23050;          // cave: build args, disconnect, spawn
     private const int HookStash = 0xE23018;        // cave: copy the server address out of the sockaddr
 
-    private static (int Offset, byte[] Bytes)[] Patches()
+    private static GamePatch[] All()
     {
         var type = typeof(Bf1942Client).Assembly.GetType("Bf1942ClientPatches")!;
-        var field = type.GetField("Patches", BindingFlags.NonPublic | BindingFlags.Static)!;
-        return ((int Offset, byte[] Bytes)[])field.GetValue(null)!;
+        var field = type.GetField("All", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (GamePatch[])field.GetValue(null)!;
     }
 
-    private static byte[] At(int fileOffset) =>
-        Patches().Single(p => p.Offset == fileOffset).Bytes;
+    private static GamePatch AutoDownload() => All().Single(patch => patch.Id == "autodownload");
+
+    private static PatchEdit At(int fileOffset) =>
+        AutoDownload().Edits.Single(edit => edit.Offset == fileOffset);
 
     /// <summary>Decodes a call rel32 back to the address it actually reaches.</summary>
     private static int CallTarget(int site, int delta)
     {
-        var bytes = At(site - delta);
+        var bytes = At(site - delta).Patched;
         Assert.Equal(0xE8, bytes[0]);
         return site + 5 + BitConverter.ToInt32(bytes, 1);
+    }
+
+    /// <summary>An executable-sized buffer with every edit written in one of its two forms.</summary>
+    private static MemoryStream FakeExe(GamePatch patch, Func<PatchEdit, byte[]> choose)
+    {
+        var size = patch.Edits.Max(edit => edit.Offset + edit.Patched.Length) + 16;
+        var stream = new MemoryStream(new byte[size], writable: true);
+        foreach (var edit in patch.Edits)
+        {
+            var bytes = choose(edit);
+            stream.Seek(edit.Offset, SeekOrigin.Begin);
+            stream.Write(bytes, 0, bytes.Length);
+        }
+        return stream;
     }
 
     [Fact]
@@ -57,7 +74,7 @@ public class ClientPatchesTests
     [InlineData(SendtoSite, TextDelta, 7)]      // displaced: mov edx,[esp+0x10]; mov ecx,[esi+4]
     public void Call_site_is_padded_to_the_displaced_length(int site, int delta, int length)
     {
-        var bytes = At(site - delta);
+        var bytes = At(site - delta).Patched;
         Assert.Equal(length, bytes.Length);
         Assert.All(bytes.Skip(5), b => Assert.Equal(0x90, b));   // remainder must be nops
     }
@@ -69,7 +86,7 @@ public class ClientPatchesTests
     [Fact]
     public void Tls_section_is_made_executable()
     {
-        var characteristics = BitConverter.ToUInt32(At(0x2EC), 0);
+        var characteristics = BitConverter.ToUInt32(At(0x2EC).Patched, 0);
         Assert.Equal(0xE0000040u, characteristics);
         Assert.True((characteristics & 0x20000000) != 0, "IMAGE_SCN_MEM_EXECUTE must be set");
     }
@@ -80,7 +97,7 @@ public class ClientPatchesTests
         // 503 zero bytes from VA 0xE23009; the stash occupies 0xE23010..0xE23015.
         const int caveEnd = 0xE23200;
         foreach (var hook in new[] { HookStash, HookMap })
-            Assert.InRange(hook + At(hook - TlsDelta).Length, hook, caveEnd);
+            Assert.InRange(hook + At(hook - TlsDelta).Patched.Length, hook, caveEnd);
     }
 
     [Fact]
@@ -94,13 +111,199 @@ public class ClientPatchesTests
     [Fact]
     public void Patches_do_not_overlap_the_games_disconnect()
     {
-        foreach (var (offset, bytes) in Patches())
+        foreach (var edit in AutoDownload().Edits)
         {
-            if (offset is 0x2EC) continue;
-            var start = offset + TextDelta;
+            if (edit.Offset is 0x2EC) continue;
+            var start = edit.Offset + TextDelta;
             // 0x527CEB..0x527CF6 is lea/push 0xb/call [edx+0x28] -- must survive
-            var overlaps = start < 0x527CF6 && start + bytes.Length > 0x527CEB;
-            Assert.False(overlaps, $"patch at 0x{offset:X} overlaps the disconnect sequence");
+            var overlaps = start < 0x527CF6 && start + edit.Patched.Length > 0x527CEB;
+            Assert.False(overlaps, $"edit at 0x{edit.Offset:X} overlaps the disconnect sequence");
         }
+    }
+
+    /// <summary>A patch must put back exactly as many bytes as it took, or it corrupts the file.</summary>
+    [Fact]
+    public void Every_edit_replaces_exactly_what_it_overwrites()
+    {
+        foreach (var edit in AutoDownload().Edits)
+            Assert.Equal(edit.Original.Length, edit.Patched.Length);
+    }
+
+    /// <summary>
+    /// Telling an out-of-date hook apart from a foreign executable rests entirely on this: the hook
+    /// bodies must land in bytes that were zero, because nothing but us ever writes there.
+    /// </summary>
+    [Fact]
+    public void Hook_bodies_go_into_zeroed_free_space()
+    {
+        foreach (var hook in new[] { HookStash, HookMap })
+            Assert.True(At(hook - TlsDelta).IsFreeSpace, $"hook at 0x{hook:X} must sit in zeroed space");
+    }
+
+    /// <summary>The other edits overwrite real bytes, which is what identifies the executable.</summary>
+    [Fact]
+    public void Call_sites_and_the_section_flag_overwrite_real_bytes()
+    {
+        foreach (var offset in new[] { MissingMapSite - TextDelta, SendtoSite - TextDelta, 0x2EC })
+            Assert.False(At(offset).IsFreeSpace, $"edit at 0x{offset:X} should not look like free space");
+    }
+
+    [Fact]
+    public void A_stock_executable_reads_as_not_applied()
+    {
+        var patch = AutoDownload();
+        using var exe = FakeExe(patch, edit => edit.Original);
+        Assert.Equal(GamePatchState.NotApplied, patch.GetState(exe));
+    }
+
+    [Fact]
+    public void A_patched_executable_reads_as_applied()
+    {
+        var patch = AutoDownload();
+        using var exe = FakeExe(patch, edit => edit.Patched);
+        Assert.Equal(GamePatchState.Applied, patch.GetState(exe));
+    }
+
+    /// <summary>An older build of our own hook must invite a re-apply, not look like a strange exe.</summary>
+    [Fact]
+    public void An_unfamiliar_hook_body_reads_as_outdated()
+    {
+        var patch = AutoDownload();
+        using var exe = FakeExe(patch, edit => edit.Patched);
+        var cave = patch.Edits.First(edit => edit.IsFreeSpace);
+        exe.Seek(cave.Offset, SeekOrigin.Begin);
+        exe.WriteByte((byte)(cave.Patched[0] ^ 0xFF));
+
+        Assert.Equal(GamePatchState.Outdated, patch.GetState(exe));
+    }
+
+    /// <summary>The guard that stops us writing into a different build of the game.</summary>
+    [Fact]
+    public void An_unrecognised_instruction_reads_as_unsupported()
+    {
+        var patch = AutoDownload();
+        using var exe = FakeExe(patch, edit => edit.Original);
+        var codeSite = patch.Edits.First(edit => !edit.IsFreeSpace);
+        exe.Seek(codeSite.Offset, SeekOrigin.Begin);
+        exe.WriteByte((byte)(codeSite.Original[0] ^ 0xFF));
+
+        Assert.Equal(GamePatchState.UnsupportedExecutable, patch.GetState(exe));
+    }
+
+    // --- the plain byte-edit patches, recovered by diffing the author's patched executables --------
+    // Their originals come from the pristine retail exe. Reading them from a working copy instead
+    // would record bytes that are already patched as the original, so revert would write the patch
+    // back and a stock exe would be misread as an unknown build.
+
+    private static GamePatch Patch(string id) => All().Single(patch => patch.Id == id);
+
+    [Fact]
+    public void Every_patch_actually_changes_something()
+    {
+        foreach (var patch in All())
+        {
+            Assert.NotEmpty(patch.Edits);
+            foreach (var edit in patch.Edits)
+            {
+                Assert.Equal(edit.Original.Length, edit.Patched.Length);
+                Assert.False(edit.Original.SequenceEqual(edit.Patched),
+                    $"{patch.Id}: edit at 0x{edit.Offset:X} writes back what was already there");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replaces retail's branching 64-clamp with a branchless 255-clamp of exactly the same length.
+    /// Pinned because an earlier definition swapped only the two 0x40 immediates, which lands in the
+    /// middle of an instruction once the region is rewritten and makes the exe look unrecognised.
+    /// </summary>
+    [Fact]
+    public void Player_limit_replaces_the_whole_clamp()
+    {
+        var edit = Assert.Single(Patch("playerlimit").Edits);
+
+        // retail: cmp eax,0x40 ... mov eax,0x40
+        Assert.Equal(new byte[] { 0x83, 0xF8, 0x40 }, edit.Original.Take(3));
+        Assert.Contains((byte)0x40, edit.Original);
+
+        // ours: mov edx,0xff ; cmp eax,edx ; cmovg eax,edx
+        Assert.Equal(new byte[] { 0xBA, 0xFF, 0x00, 0x00, 0x00 }, edit.Patched.Take(5));
+        Assert.Equal(new byte[] { 0x39, 0xD0, 0x0F, 0x4F, 0xC2 }, edit.Patched.Skip(5).Take(5));
+    }
+
+    /// <summary>Missing one host would leave the browser half-pointed at a server that is gone.</summary>
+    [Fact]
+    public void Openspy_replaces_every_gamespy_host()
+    {
+        var edits = Patch("openspy").Edits;
+        Assert.Equal(4, edits.Length);
+        Assert.All(edits, edit => Assert.Equal("gamespy.com", Encoding.ASCII.GetString(edit.Original)));
+        Assert.All(edits, edit => Assert.Equal("openspy.net", Encoding.ASCII.GetString(edit.Patched)));
+    }
+
+    /// <summary>Sets IMAGE_FILE_LARGE_ADDRESS_AWARE and disturbs no other flag in that byte.</summary>
+    [Fact]
+    public void Large_address_patch_only_sets_its_own_bit()
+    {
+        var edit = Assert.Single(Patch("largeaddress").Edits);
+        const byte largeAddressAware = 0x20;
+        Assert.Equal(edit.Original[0] | largeAddressAware, edit.Patched[0]);
+    }
+
+    /// <summary>
+    /// A cave patch's hook has to jump exactly to the cave it ships. If the displacement is off, the
+    /// game jumps into whatever else happens to be at that address, which is a crash at best.
+    /// </summary>
+    [Theory]
+    [InlineData("widescreen3d")]
+    [InlineData("viewmodelaspect")]
+    [InlineData("widescreenres")]
+    public void Cave_hooks_jump_into_the_cave_they_ship(string id)
+    {
+        var patch = Patch(id);
+        Assert.NotNull(patch.Cave);
+        var cave = patch.Cave!;
+
+        // Landing anywhere inside the shipped block is what matters -- one patch can have several hooks
+        // entering at different points, and its cave code can call between those points internally.
+        var redirects = 0;
+        foreach (var edit in patch.Edits)
+        {
+            // Only the edits that redirect control flow have a target to check. A patch can also
+            // include edits that just disable a branch, which belong to the feature but jump nowhere.
+            if (edit.Patched[0] is not (0xE8 or 0xE9))   // call rel32 / jmp rel32
+                continue;
+
+            var site = (uint)(edit.Offset + TextDelta);             // file offset back to a VA
+            var target = site + 5 + (uint)BitConverter.ToInt32(edit.Patched, 1);
+            Assert.InRange(
+                target,
+                cave.ContentVirtualAddress,
+                cave.ContentVirtualAddress + (uint)cave.Contents.Length - 1);
+            redirects++;
+        }
+
+        Assert.True(redirects > 0, $"{id} ships a cave but nothing jumps into it");
+
+        // The cave also has to fit inside the section that will be created to hold it.
+        Assert.InRange(
+            cave.ContentVirtualAddress + (uint)cave.Contents.Length,
+            cave.SectionVirtualAddress,
+            cave.SectionVirtualAddress + cave.SectionSize);
+    }
+
+    /// <summary>
+    /// Two patches sharing a byte would fight: reverting one would silently corrupt the other, and the
+    /// state of both would depend on the order they were applied.
+    /// </summary>
+    [Fact]
+    public void No_two_patches_touch_the_same_bytes()
+    {
+        var claimed = new HashSet<int>();
+        foreach (var patch in All())
+            foreach (var edit in patch.Edits)
+                for (var i = 0; i < edit.Patched.Length; i++)
+                    Assert.True(claimed.Add(edit.Offset + i),
+                        $"{patch.Id}: byte 0x{edit.Offset + i:X} is claimed by more than one patch");
     }
 }

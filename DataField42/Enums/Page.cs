@@ -5,6 +5,8 @@ public enum Page
     Dashboard,
     ServerList,
     SyncMenu,
+    News,
+    Patches,
     Info,
     Settings,
 }

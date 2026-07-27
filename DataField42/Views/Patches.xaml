@@ -1,0 +1,71 @@
+<UserControl x:Class="DataField42.Views.Patches"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:DataField42.Views"
+             xmlns:ViewModels="clr-namespace:DataField42.ViewModels"
+             xmlns:Converters="clr-namespace:DataField42.Converters"
+             mc:Ignorable="d"
+             d:DesignHeight="450" d:DesignWidth="800">
+    <UserControl.Resources>
+        <Style x:Key="PatchButton" TargetType="Button">
+            <Setter Property="Background" Value="#1b2438" />
+            <Setter Property="Foreground" Value="#d4d4d4" />
+            <Setter Property="BorderBrush" Value="#233050" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="MinWidth" Value="90" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#6b7280" />
+                    <Setter Property="Cursor" Value="Arrow" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel Margin="0,0,0,10">
+        <TextBlock Foreground="#d4d4d4" TextWrapping="Wrap" Margin="0,0,0,4"
+                   Text="Changes DataField Vietnam can make to your BfVietnam.exe. Each one can be turned on or off independently, and turning one off puts the original bytes back." />
+        <TextBlock Foreground="#8b94a7" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,12"
+                   Text="Close Battlefield Vietnam before changing these. Your original executable is also backed up as BfVietnam.exe.bak." />
+
+        <TextBlock Foreground="#FA9405" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="{Binding Message}"
+                   Visibility="{Binding HasMessage, Converter={Converters:BooleanToVisibilityConverter}}" />
+
+        <ItemsControl ItemsSource="{Binding Patches}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type ViewModels:GamePatchViewModel}">
+                    <Border Background="#0d111c" BorderBrush="#233050" BorderThickness="1"
+                            CornerRadius="0" Padding="12" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                <TextBlock Foreground="#d4d4d4" FontWeight="Bold" FontSize="14"
+                                           TextWrapping="Wrap" Text="{Binding Name}" />
+                                <TextBlock Foreground="#a9b1c2" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="{Binding Description}" />
+                                <TextBlock Foreground="#8b94a7" FontSize="11" Margin="0,6,0,0"
+                                           TextWrapping="Wrap" Text="{Binding StatusText}" />
+                            </StackPanel>
+
+                            <Button Grid.Column="1" VerticalAlignment="Center"
+                                    Style="{StaticResource PatchButton}"
+                                    Content="{Binding ActionText}"
+                                    IsEnabled="{Binding CanToggle}"
+                                    Command="{Binding DataContext.ToggleCommand, RelativeSource={RelativeSource FindAncestor, AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>
