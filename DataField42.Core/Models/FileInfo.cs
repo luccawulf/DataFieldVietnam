@@ -67,9 +67,39 @@ public class FileInfo
         ParseArguments(mod, relativePath, crc32, size, lastModifiedTimestamp, fast);
     }
 
+    /// <remarks>
+    /// A sixth field, when the server sends one, is the file's SHA-256. Servers that predate it send
+    /// five and <see cref="Sha256"/> stays empty, which is why it is read defensively rather than by
+    /// position: the same client has to work against both.
+    /// </remarks>
     public FileInfo(IEnumerable<string> spaceSeperatedString)
     {
         ParseArguments(spaceSeperatedString.ElementAt(0), spaceSeperatedString.ElementAt(1), spaceSeperatedString.ElementAt(2), spaceSeperatedString.ElementAt(3), spaceSeperatedString.ElementAt(4), checkSafety: true);
+
+        if (spaceSeperatedString.Count() > 5)
+            Sha256 = NormaliseSha256(spaceSeperatedString.ElementAt(5));
+    }
+
+    /// <summary>
+    /// The file's SHA-256 as lowercase hex, or empty when the server did not send one.
+    /// </summary>
+    /// <remarks>
+    /// Only ever used to check a file that has just been downloaded. Sync decisions stay on the CRC32C
+    /// in <see cref="Checksum"/>, which is cached against files already on disk -- so adding this
+    /// costs one hash of the bytes that were just read, and nothing on the common path where a sync
+    /// decides everything is already present.
+    /// </remarks>
+    public string Sha256 { get; set; } = "";
+
+    /// <summary>Accepts a well-formed digest and ignores anything else, rather than trusting it.</summary>
+    private static string NormaliseSha256(string value)
+    {
+        if (value.Length != 64)
+            return "";
+        foreach (var c in value)
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+                return "";
+        return value.ToLowerInvariant();
     }
 
     [MemberNotNull(nameof(Mod))]

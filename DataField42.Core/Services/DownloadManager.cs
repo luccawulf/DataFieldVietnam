@@ -51,6 +51,10 @@ public class DownloadManager
 
         await _downloadDecisionMaker.CheckDownloadRequests(_fileInfos, cancellationToken);
 
+        // The decision pass is what populates the digest cache; write it once here rather than on
+        // every record.
+        CheckSums.FlushCache();
+
         var toDownload = _fileInfos.Count(x => x.SyncType == SyncType.Download);
         var fromCache = _fileInfos.Count(x => x.SyncType == SyncType.LocalFileCache);
         var local = _fileInfos.Count(x => x.SyncType == SyncType.LocalFile);
@@ -190,15 +194,38 @@ public class DownloadManager
 
         var fileInfosOfFilesToDownload = _fileInfos.Where(x => x.SyncType == SyncType.Download);
 
-        // check if all downloaded files have the correct checksum and file size:
+        // Check every downloaded file against what was promised, by reading it.
+        //
+        // The digest is computed here rather than by building a FileInfo, which is what this used to
+        // do. FileInfo takes the cached route, and that cache was keyed on size and last-modified time
+        // -- both of which the server declares, and the second of which is stamped onto the file at
+        // ReceiveFile time from the server's own value, before this runs. A server could therefore
+        // name a size and a timestamp matching a record the client already held and have its file pass
+        // this check without a byte of it being read. Hashing directly is the fix; the size comparison
+        // is kept because a truncated transfer should say so plainly rather than as a digest mismatch.
         foreach (var fileInfoOfFileToDownload in fileInfosOfFilesToDownload)
         {
             var filePathInWorkingDirectory = $"{_localFileCacheManager.WorkingDirectoryWithSlash}mods/{fileInfoOfFileToDownload.Mod}/{fileInfoOfFileToDownload.FilePath}";
-            var fileInfo = new FileInfo(filePathInWorkingDirectory, _localFileCacheManager.WorkingDirectory);
-            if (fileInfo.Checksum != fileInfoOfFileToDownload.Checksum)
-                throw new Exception($"Downloaded file has incorrect checksum: {fileInfo.Checksum}. Expected: {fileInfoOfFileToDownload.Checksum}");
-            if (fileInfo.Size != fileInfoOfFileToDownload.Size)
-                throw new Exception($"Downloaded file has incorrect size: {fileInfo.Size}. Expected: {fileInfoOfFileToDownload.Size}");
+
+            var actualSize = (ulong)new System.IO.FileInfo(filePathInWorkingDirectory).Length;
+            if (actualSize != fileInfoOfFileToDownload.Size)
+                throw new Exception($"Downloaded file has incorrect size: {actualSize}. Expected: {fileInfoOfFileToDownload.Size}");
+
+            // SHA-256 when the server offered one, CRC32C otherwise -- servers older than the second
+            // digest send five fields and leave it empty. Only one of the two is computed, so nothing
+            // is read twice.
+            if (fileInfoOfFileToDownload.Sha256 != "")
+            {
+                var actualSha256 = CheckSums.Sha256(filePathInWorkingDirectory);
+                if (actualSha256 != fileInfoOfFileToDownload.Sha256)
+                    throw new Exception($"Downloaded file has incorrect SHA-256: {actualSha256}. Expected: {fileInfoOfFileToDownload.Sha256}");
+            }
+            else
+            {
+                var actualChecksum = CheckSums.Crc32C(filePathInWorkingDirectory).ToString("X8");
+                if (actualChecksum != fileInfoOfFileToDownload.Checksum)
+                    throw new Exception($"Downloaded file has incorrect checksum: {actualChecksum}. Expected: {fileInfoOfFileToDownload.Checksum}");
+            }
         }
 
         _logger.LogDebug("Checksums verified. Moving files from cache to working directory.");
