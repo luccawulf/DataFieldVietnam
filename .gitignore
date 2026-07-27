@@ -10,3 +10,15 @@
 # Python server bytecode
 __pycache__/
 *.pyc
+
+# Release signing keys. The private half can push code to every user, so it must never be
+# committed and never reach the file server. dfvsign keeps it under %APPDATA% by default; these
+# patterns are a backstop in case one is ever created inside the tree.
+*.p8
+*.pem
+*.pfx
+*.key
+release-key*
+
+# Staged server archives are build artifacts, rebuilt from the script when needed.
+DataFieldVietnamServer*.7z

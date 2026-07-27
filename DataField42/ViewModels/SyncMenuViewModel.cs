@@ -179,6 +179,18 @@ public partial class SyncMenuViewModel : ObservableObject, IPageViewModel
                 }
             }
         }
+        catch (InvalidReleaseSignatureException ex)
+        {
+            // Refusing an update is not a reason to stop working. The client that is running was not
+            // touched, and whether it can sync is decided further down by the real check -- the game
+            // server's Major.Minor against ours -- not by whether an update happened. Treating this as
+            // a broken version would leave someone unable to join a server because an unrelated
+            // machine had not been signed yet, and the natural way out of that is to turn the checking
+            // off, which is the opposite of what should happen.
+            _logger.LogError($"Update refused: {ex.Message}");
+            PostError($"Update refused: {ex.Message}");
+            PostMessage("Continuing on the version you already have.");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Client update failed.");

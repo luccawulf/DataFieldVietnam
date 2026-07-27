@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DF.Settings", "DF.Settings\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataField42.Core.Tests", "DataField42.Core.Tests\DataField42.Core.Tests.csproj", "{D26A13FB-B4B8-45D8-993C-B8CB55AD07CD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataField42.Sign", "DataField42.Sign\DataField42.Sign.csproj", "{55322216-52DC-4802-96D8-25E30A5F8CE3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -97,6 +99,18 @@ Global
 		{D26A13FB-B4B8-45D8-993C-B8CB55AD07CD}.Release|x64.Build.0 = Release|Any CPU
 		{D26A13FB-B4B8-45D8-993C-B8CB55AD07CD}.Release|x86.ActiveCfg = Release|Any CPU
 		{D26A13FB-B4B8-45D8-993C-B8CB55AD07CD}.Release|x86.Build.0 = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|x64.Build.0 = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Debug|x86.Build.0 = Debug|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|x64.ActiveCfg = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|x64.Build.0 = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|x86.ActiveCfg = Release|Any CPU
+		{55322216-52DC-4802-96D8-25E30A5F8CE3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

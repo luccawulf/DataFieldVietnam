@@ -37,8 +37,14 @@ public partial class App : Application
         mainWindow.Show();
         MainWindow = mainWindow;
 
-        Task.Run(CleanUpUpdateLeftovers);
-        Task.Run(() => RunStartupUpdate(loggerFactory));
+        // Sequential, not two parallel tasks: cleanup deletes the very filename an update downloads
+        // into, and running them together let it delete a freshly verified updater in the moment
+        // between the check passing and the launch, killing a legitimate update at random.
+        Task.Run(async () =>
+        {
+            CleanUpUpdateLeftovers();
+            await RunStartupUpdate(loggerFactory);
+        });
     }
 
     /// <summary>
