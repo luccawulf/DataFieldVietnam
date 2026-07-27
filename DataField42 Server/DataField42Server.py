@@ -8,6 +8,7 @@ import threading
 import select
 import time
 import json
+import hashlib
 from enum import Enum
 from datetime import datetime
 import google_crc32c
@@ -144,6 +145,7 @@ class FileRule:
 class ChecksumRepository:
     def __init__(self, filename: str):
         self.filename = filename
+        self.dirty = False
         self.records = self.load_records()
         # Reentrant: add_record holds this and then calls save_records, which takes it again. With a
         # plain Lock that is a self-deadlock, and it fires the first time any new checksum is
@@ -151,36 +153,53 @@ class ChecksumRepository:
         # watchdog and any client waiting on a download listing.
         self.lock = threading.RLock()
 
+    @staticmethod
+    def key_of(path, size, last_time_modified) -> str:
+        # The path belongs in the key. Keyed on size and mtime alone, any two files packed in the same
+        # session collide -- which is the normal case for a mod's archives -- and one file's checksum
+        # gets served for another. Clients then fail verification on a perfectly good download.
+        return f"{os.path.abspath(path)}|{int(size)}|{int(last_time_modified)}"
+
     def load_records(self):
         try:
             with open(self.filename, 'r') as file:
-                return json.load(file)
-        except:
-            pass
-        return []
+                loaded = json.load(file)
+        except Exception:
+            return {}
+
+        # Older files are a list, and their records carry neither a path nor a sha256. They can never
+        # be matched under the current key, so drop them and let the digests be recomputed once.
+        if not isinstance(loaded, dict):
+            return {}
+        return {key: record for key, record in loaded.items()
+                if isinstance(record, dict) and record.get('sha256')}
 
     def save_records(self):
         with self.lock:
-            with open(self.filename, 'w') as file:
+            if not self.dirty:
+                return
+            # Written beside the real file and moved into place, so an interrupted write cannot leave
+            # a truncated cache that fails to parse on the next start.
+            temporary = self.filename + ".tmp"
+            with open(temporary, 'w') as file:
                 json.dump(self.records, file)
+            os.replace(temporary, self.filename)
+            self.dirty = False
 
-    def add_record(self, checksum, size, last_time_modified):
-        record = {
-            'checksum': str(checksum),
-            'size': int(size),
-            'lastTimeModified': int(last_time_modified)
-        }
+    def add_record(self, path, checksum, sha256, size, last_time_modified):
         with self.lock:
-            log_info(f"Adding Checksum to ChecksumRepository: {checksum}")
-            self.records.append(record)
-            self.save_records()
+            self.records[self.key_of(path, size, last_time_modified)] = {
+                'path': os.path.abspath(path),
+                'checksum': str(checksum),
+                'sha256': str(sha256),
+                'size': int(size),
+                'lastTimeModified': int(last_time_modified),
+            }
+            self.dirty = True
 
-    def find_checksum(self, size, last_time_modified) -> str | None:
+    def find_record(self, path, size, last_time_modified) -> dict | None:
         with self.lock:
-            for record in self.records:
-                if record['size'] == int(size) and record['lastTimeModified'] == int(last_time_modified):
-                    return record['checksum']
-        return None
+            return self.records.get(self.key_of(path, size, last_time_modified))
 
 
 class ChecksumRepositoryManager:
@@ -189,17 +208,40 @@ class ChecksumRepositoryManager:
         self.lock = threading.Lock()  # Lock for thread safety
         self.start_new_files_watchdog()
 
-    def get_checksum(self, path: str) -> str:
-        with self.lock:
-            checksum_from_repository = self.repository.find_checksum(os.path.getsize(path), os.path.getmtime(path))
-            if checksum_from_repository is not None:
-                return checksum_from_repository
+    def get_checksums(self, path: str) -> tuple[str, str]:
+        """Both digests for a file: the CRC32C the protocol has always carried, and its SHA-256.
 
+        Sent together so a client can use whichever it understands. Old clients read the CRC32C field
+        and ignore the extra one; newer clients verify against the SHA-256.
+        """
+        size = os.path.getsize(path)
+        last_time_modified = os.path.getmtime(path)
+
+        with self.lock:
+            record = self.repository.find_record(path, size, last_time_modified)
+            if record is not None:
+                return record['checksum'], record['sha256']
+
+            # Streamed rather than file.read(): the archives here reach hundreds of megabytes and
+            # reading one whole means holding all of it in memory per request.
+            crc = 0
+            sha = hashlib.sha256()
             with open(path, "rb") as file:
-                checksum = google_crc32c.value(file.read())
-                checksum = f"{(checksum & 0xFFFFFFFF):08X}"
-                self.repository.add_record(checksum, os.path.getsize(path), os.path.getmtime(path))
-        return checksum
+                while True:
+                    block = file.read(1 << 20)
+                    if not block:
+                        break
+                    crc = google_crc32c.extend(crc, block)
+                    sha.update(block)
+
+            checksum = f"{(crc & 0xFFFFFFFF):08X}"
+            sha256 = sha.hexdigest()
+            self.repository.add_record(path, checksum, sha256, size, last_time_modified)
+        return checksum, sha256
+
+    def get_checksum(self, path: str) -> str:
+        """The CRC32C alone, for callers that predate the second digest."""
+        return self.get_checksums(path)[0]
 
     def start_new_files_watchdog(self):
         threading.Thread(target=self.new_files_watchdog).start()
@@ -211,9 +253,12 @@ class ChecksumRepositoryManager:
                          if os.path.splitext(f)[1].lower() in ['.rfa', '.bik', '.dat', '.con', '.dll', '.dds']]
             for file in all_files:
                 try:
-                    self.get_checksum(file)
+                    self.get_checksums(file)
                 except Exception as e:
                     log_error(f"Failed adding file with new_files_watchdog {file}: {e}")
+            # Written once per sweep rather than per file: the cache is rewritten whole, so saving on
+            # every addition made the first pass over a full mod library quadratic.
+            self.repository.save_records()
             time.sleep(1)
 
 
@@ -348,6 +393,12 @@ class DataField42TCPHandler(socketserver.BaseRequestHandler):
             send_update(communication, *arguments)
         elif header == "updateFile" and len(arguments) == 1:
             send_update_file(communication, *arguments)
+        elif header == "updateSig" and len(arguments) == 1:
+            send_update_signature(communication, *arguments)
+        elif header == "news" and len(arguments) == 0:
+            send_news(communication)
+        elif header == "newsImage" and len(arguments) == 1:
+            send_news_image(communication, *arguments)
         else:
             communication.send("unknown identifier")
         log_info("#### Connection Closed ####")
@@ -356,6 +407,71 @@ class DataField42TCPHandler(socketserver.BaseRequestHandler):
 def handshake(communication: DataField42Communication, version: str):
     redirect_server_ip = "null" if dataField42_server.redirect_server_ip == "" else dataField42_server.redirect_server_ip
     communication.send(f"{redirect_server_ip} {dataField42_server_version}", await_acknowledgement=False)
+
+
+# --- news ------------------------------------------------------------------------------------------
+# A short announcement shown to anyone who opens the news page in DataField Vietnam. Write whatever you
+# like in news.txt next to this script; it is served verbatim as plain text, so there is no format to
+# get wrong and a bad file can never break a client. Only ever sent when a client asks -- nothing is
+# pushed, and the client has no background process to push to.
+NEWS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news.txt")
+
+
+def send_news(communication: DataField42Communication):
+    if not os.path.isfile(NEWS_FILE):
+        log_debug(f"News requested but {NEWS_FILE} does not exist; sending nothing.")
+        communication.send("", await_acknowledgement=False)
+        return
+    with open(NEWS_FILE, "r", encoding="utf-8") as file:
+        news = file.read()
+    log_info(f"Serving news ({len(news)} characters)")
+    communication.send(news, await_acknowledgement=False)
+
+
+# Pictures the news text can refer to, as [img:name.png] on a line of its own. They live in a folder
+# beside news.txt and are served from here rather than linked to somewhere on the web: a link would
+# have every player's client contact a third-party host the moment they opened the page, handing that
+# host their IP address, and news is meant to be something the client reads from us when asked -- not
+# a thing that quietly fans out to other servers.
+NEWS_IMAGES_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_images")
+
+NEWS_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+
+# Anything larger is refused rather than sent. The client draws these at a few hundred pixels wide, so
+# a picture past this is a mistake, and a cap keeps one bad file from making the page hang.
+NEWS_IMAGE_MAXIMUM_BYTES = 4 * 1024 * 1024
+
+
+def send_news_image(communication: DataField42Communication, file_name: str):
+    """Serve one picture referenced by the news text.
+
+    The name arrives from the client, so it is reduced to a basename and looked up only inside the
+    images folder -- the same rule the update files follow. Nothing outside that folder is reachable,
+    whatever the client asks for.
+    """
+    base_name = os.path.basename(file_name)
+    if os.path.splitext(base_name)[1].lower() not in NEWS_IMAGE_EXTENSIONS:
+        log_warning(f"Refusing newsImage for a name that is not a picture: {file_name!r}")
+        communication.send("image not available", await_acknowledgement=False)
+        return
+
+    path = None
+    if os.path.isdir(NEWS_IMAGES_DIRECTORY):
+        path = smart_path_join(NEWS_IMAGES_DIRECTORY, base_name)
+
+    if path is None or not os.path.isfile(path):
+        log_error(f"newsImage {base_name!r} requested but it is not in {NEWS_IMAGES_DIRECTORY}")
+        communication.send("image not available", await_acknowledgement=False)
+        return
+
+    size = os.path.getsize(path)
+    if size > NEWS_IMAGE_MAXIMUM_BYTES:
+        log_error(f"newsImage {base_name!r} is {size} bytes, over the {NEWS_IMAGE_MAXIMUM_BYTES} limit")
+        communication.send("image not available", await_acknowledgement=False)
+        return
+
+    log_info(f"Serving news image: {base_name} ({size} bytes)")
+    _serve_file_with_size(communication, path)
 
 
 # --- client auto-update ----------------------------------------------------------------------------
@@ -411,17 +527,60 @@ def send_update_file(communication: DataField42Communication, file_name: str):
     _serve_file_with_size(communication, path)
 
 
-# Central database this server registers with. bf1942.eu is to host Battlefield Vietnam content too,
-# so BFV servers belong here as well. Set to None to run standalone -- clients can always sync
+def send_update_signature(communication: DataField42Communication, file_name: str):
+    """Serve the release signature for an update executable.
+
+    Clients refuse to run an update they cannot verify, so a missing or unreadable .sig here stops the
+    update rather than weakening it. That is deliberate: an attacker who could suppress the signature
+    would otherwise be able to downgrade every client to no verification at all.
+
+    Signatures are made off this machine with dfvsign and uploaded alongside the executables. This
+    server only hands the file over -- it has no key and cannot produce one, which is exactly why a
+    signature is worth anything even if this box is taken over.
+    """
+    if os.path.basename(file_name).lower() not in UPDATE_FILE_ALLOWLIST:
+        log_warning(f"Refusing updateSig for a name that is not allow-listed: {file_name!r}")
+        communication.send("signature not available", await_acknowledgement=False)
+        return
+
+    path = _resolve_update_file(file_name)
+    if path is None or not os.path.isfile(path + ".sig"):
+        log_error(
+            f"updateSig {file_name!r} requested but {os.path.basename(file_name)}.sig is missing from "
+            f"{UPDATE_FILES_DIRECTORY}. Clients will refuse this update until it is signed "
+            f"(run: dfvsign sign {os.path.basename(file_name)} <version>)."
+        )
+        communication.send("signature not available", await_acknowledgement=False)
+        return
+
+    with open(path + ".sig", "r", encoding="utf-8") as signature_file:
+        signature_document = signature_file.read()
+
+    log_info(f"Serving release signature for {os.path.basename(path)}")
+    communication.send(signature_document, await_acknowledgement=False)
+
+
+# Central database this server registers with. The DataField Vietnam central database is currently
+# hosted by LuccaWulf at 188.245.154.232. Set to None to run standalone -- clients can always sync
 # straight from the server without any central database.
-MASTER_HOST = 'bf1942.eu'
+MASTER_HOST = '188.245.154.232'
 
 # Whether to replace this script with the master's copy when the master reports a newer version.
 #
-# Heartbeat and self-update share one channel, and they are not the same decision: registering a BFV
-# server with bf1942.eu is fine, but accepting a script from it is only safe once the master serves a
-# BFV-aware build. Until then this stays off, or a live BFV server would quietly pull the BF1942
-# script and undo the port on the next heartbeat.
+# LEAVE THIS OFF. An earlier version of this comment said accepting a script from our own master was
+# safe. It is not, and the reasoning was wrong: it argued about WHO we intend to talk to, when the
+# problem is that nothing here can tell who actually answered.
+#
+# The heartbeat goes out over plain TCP to a bare IP -- no TLS, no certificate, no signature. Anything
+# that can answer it (someone on the path, someone who takes over that box, or whoever is assigned
+# that address after it is given up) can claim a higher version and hand back a Python script that
+# this process then writes over itself and runs. That is arbitrary code execution as whatever user
+# runs the service, which per SERVER_SETUP.md is root.
+#
+# This is the same hole that the client update channel had until release signing was added (see
+# SIGNING.md). Until the server script is signed the same way -- offline key, manifest verified before
+# the file is written -- there is nothing to check, so the only safe setting is False. Updating by
+# hand is one scp, which is what SERVER_SETUP.md tells you to do anyway.
 ALLOW_SELF_UPDATE = False
 
 """
@@ -698,14 +857,22 @@ def download_files(communication: DataField42Communication, map_name: str, mod_n
         size = os.path.getsize(file[2])
         total_size += size
         file.append(str(size))
-        file.append(checksum_repository_manager.get_checksum(file[2]))
+        crc32c, sha256 = checksum_repository_manager.get_checksums(file[2])
+        file.append(crc32c)
+        file.append(sha256)
 
     files_to_send = []
 
     file_info_strings = []
 
     for file in files:
-        file_info_strings.append(f"{file[0]} \"{file[1]}\" {file[5]} {file[4]} {int(os.path.getmtime(file[2]))}")  # mod filePath checksum size lastModified
+        # mod filePath checksum size lastModified sha256
+        #
+        # The sha256 is a sixth field appended to the end. Clients built before it read the first five
+        # by position and never look further, so adding it here does not disturb them -- which is why
+        # it goes on this bulk listing and not on the per-file preamble below, where the client asserts
+        # an exact field count and a sixth would be a protocol error.
+        file_info_strings.append(f"{file[0]} \"{file[1]}\" {file[5]} {file[4]} {int(os.path.getmtime(file[2]))} {file[6]}")
 
     communication.send('\n'.join(file_info_strings), await_acknowledgement=False)
     file_info_response_strings = communication.receive_space_separated_string()
@@ -736,7 +903,7 @@ def download_files(communication: DataField42Communication, map_name: str, mod_n
 # new exe, and updates again forever. To push a release: build the client at the new version, drop it
 # (and the updater) in update_files/, then set this to match. Keep Major.Minor equal to the clients you
 # serve -- the sync path rejects a mismatched Major/Minor -- so bump only the third/fourth number.
-dataField42_server_version = Version("2.1.0.0")
+dataField42_server_version = Version("2.1.0.4")
 
 # The directory holding the Mods folder to serve, defaulting to the working directory.
 #
@@ -753,7 +920,36 @@ dataField42_server = DataField42Server(sys.argv[1] if len(sys.argv) > 1 else "")
 checksum_repository_manager = ChecksumRepositoryManager("ChecksumRepository.json")
 sync_rule_manager = SyncRuleManager("Synchronization rules.txt")
 
+def check_no_signing_key_is_present():
+    """Refuse to start if a release signing key has been copied onto this machine.
+
+    The client only trusts updates because the key that signs them is not here: a compromise of this
+    box lets an attacker serve any file, but not sign one. Someone syncing a release folder wholesale
+    (scp -r, a backup, a sync tool) would quietly undo that, and nothing else would ever notice.
+
+    So notice loudly, and stop. Being briefly offline is a far smaller problem than serving files from
+    a machine that can also sign them.
+    """
+    if not os.path.isdir(UPDATE_FILES_DIRECTORY):
+        return
+
+    key_suffixes = (".p8", ".pem", ".pfx", ".key")
+    for directory_path, _, file_names in os.walk(UPDATE_FILES_DIRECTORY):
+        for file_name in file_names:
+            if file_name.lower().endswith(key_suffixes):
+                found = os.path.join(directory_path, file_name)
+                log_error("=" * 78)
+                log_error(f"REFUSING TO START: what looks like a signing key is on this server: {found}")
+                log_error("The release signing key must never leave the machine you build on -- while it")
+                log_error("is here, anyone who gets into this box can sign updates as you.")
+                log_error("Delete it here, make sure the original is still safe on your build machine,")
+                log_error("and upload only the .exe and .sig files.")
+                log_error("=" * 78)
+                raise SystemExit(1)
+
+
 # Only bind the socket when run as a script, so the file-gathering can be exercised by importing it.
 if __name__ == "__main__":
+    check_no_signing_key_is_present()
     log_info(f"Serving client files from: {os.path.abspath(dataField42_server.game_directory or '.')}")
     dataField42_server.start()

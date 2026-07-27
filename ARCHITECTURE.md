@@ -73,7 +73,9 @@ The client keeps itself current. On startup (and before each sync) it asks the c
 version; if the client is behind, it downloads the updater bootstrap, which downloads the new client,
 swaps it in place, and relaunches. The version rule: updates fire on a full version comparison, while
 server-compatibility only checks Major.Minor — so bumping the third/fourth number pushes an update
-without breaking sync. See `DataField42 Server/` and `SERVER_SETUP.md` §8 for the release workflow.
+without breaking sync. See `DataField42 Server/` and `SERVER_SETUP.md` §8 for the release workflow,
+and `SIGNING.md` for the release signing that update executables must carry — a client refuses to run
+an update it cannot verify against the pinned key, so an unsigned build does not install at all.
 
 ## The installer
 
@@ -100,4 +102,5 @@ game just reverts to its normal "map not found" popup.
 - `DataField42 Installer/` — the Inno Setup script
 - `Client Patches/bfv/` — the hand-written asm hooks and the assembler that generates the patch table
 - `DataField42.Core.Tests/` — tests
-- `SERVER_SETUP.md` — how to stand up a server box; `UPSTREAM_BUGS.md` — bugs found in shared code
+- `SERVER_SETUP.md` — how to stand up a server box; `SIGNING.md` — release signing and key custody;
+  `UPSTREAM_BUGS.md` — bugs found in shared code

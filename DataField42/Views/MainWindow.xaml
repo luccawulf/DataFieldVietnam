@@ -40,6 +40,12 @@
         <DataTemplate DataType="{x:Type ViewModels:InfoViewModel}">
             <Views:Info />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type ViewModels:NewsViewModel}">
+            <Views:News />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type ViewModels:PatchesViewModel}">
+            <Views:Patches />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type ViewModels:SyncMenuViewModel}">
             <Views:SyncMenu />
         </DataTemplate>
@@ -108,6 +114,30 @@
                             IsSelected="{Binding CurrentPage, Converter={Converters:EqualityToBoolConverter}, ConverterParameter={x:Static Enums:Page.ServerList}}" >
                             <svg:SVGImage
                                 UriSource="/Resources/Images/layout-list.svg"
+                                SizeType="ViewBoxToSizeNoStretch"
+                                OverrideStrokeColor="#d4d4d4"
+                                Margin="5" />
+                        </Controls:SimpleButton>
+                        <Controls:SimpleButton
+                            Margin="0,10,0,0"
+                            Width="40" Height="40"
+                            Command="{Binding GoToPageCommand}"
+                            CommandParameter="{x:Static Enums:Page.News}"
+                            IsSelected="{Binding CurrentPage, Converter={Converters:EqualityToBoolConverter}, ConverterParameter={x:Static Enums:Page.News}}" >
+                            <svg:SVGImage
+                                UriSource="/Resources/Images/news.svg"
+                                SizeType="ViewBoxToSizeNoStretch"
+                                OverrideStrokeColor="#d4d4d4"
+                                Margin="5" />
+                        </Controls:SimpleButton>
+                        <Controls:SimpleButton
+                            Margin="0,10,0,0"
+                            Width="40" Height="40"
+                            Command="{Binding GoToPageCommand}"
+                            CommandParameter="{x:Static Enums:Page.Patches}"
+                            IsSelected="{Binding CurrentPage, Converter={Converters:EqualityToBoolConverter}, ConverterParameter={x:Static Enums:Page.Patches}}" >
+                            <svg:SVGImage
+                                UriSource="/Resources/Images/tool.svg"
                                 SizeType="ViewBoxToSizeNoStretch"
                                 OverrideStrokeColor="#d4d4d4"
                                 Margin="5" />

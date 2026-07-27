@@ -270,6 +270,10 @@ public partial class MainWindowViewModel : ObservableObject
                         _loggerFactory.CreateLogger<AbstractServerListViewModel>(),
                         _loggerFactory,
                         _serverLobby),
+                    Page.News => new NewsViewModel(_loggerFactory),
+                    Page.Patches => new PatchesViewModel(
+                        _bf1942Client,
+                        _loggerFactory.CreateLogger<PatchesViewModel>()),
                     Page.Info => new InfoViewModel(),
                     Page.Settings => new SettingsViewModel(
                         new SettingsProvider<Settings.Settings>(_settingsService.Settings, new SettingSelector()).Settings,
